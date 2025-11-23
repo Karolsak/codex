@@ -48,6 +48,20 @@ class ODESolver:
 
         return t, y
 
+    @staticmethod
+    def rk4_step(func, t, y, dt):
+        """Single RK4 step for real-time integration"""
+        k1 = func(t, y)
+        k2 = func(t + dt / 2, y + dt * k1 / 2)
+        k3 = func(t + dt / 2, y + dt * k2 / 2)
+        k4 = func(t + dt, y + dt * k3)
+        return y + (dt / 6) * (k1 + 2 * k2 + 2 * k3 + k4)
+
+    @staticmethod
+    def euler_step(func, t, y, dt):
+        """Single Euler step for real-time integration"""
+        return y + dt * func(t, y)
+
 
 class TariffCalculator:
     """Calculate electricity tariff and related parameters"""
@@ -191,6 +205,7 @@ class ElectricalEngineeringSimulator(tk.Tk):
         # Simulation control
         self.running = False
         self.solver_type = "RK45"
+        self.tariff_running = False
 
         # Create GUI
         self.create_widgets()
@@ -214,8 +229,26 @@ class ElectricalEngineeringSimulator(tk.Tk):
         tab = ttk.Frame(self.notebook)
         self.notebook.add(tab, text="Tariff Calculator")
 
+        # Scrollable container for dense tariff inputs/results
+        container = ttk.Frame(tab)
+        container.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+
+        canvas = tk.Canvas(container, highlightthickness=0)
+        vbar = ttk.Scrollbar(container, orient=tk.VERTICAL, command=canvas.yview)
+        canvas.configure(yscrollcommand=vbar.set)
+        vbar.pack(side=tk.RIGHT, fill=tk.Y)
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        inner = ttk.Frame(canvas)
+        inner_window = canvas.create_window((0, 0), window=inner, anchor="nw")
+
+        def _on_frame_configure(event):
+            canvas.configure(scrollregion=canvas.bbox("all"))
+
+        inner.bind('<Configure>', _on_frame_configure)
+
         # Main container with two panels
-        main_frame = ttk.Frame(tab)
+        main_frame = ttk.Frame(inner)
         main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
         # Left panel - Inputs
@@ -303,9 +336,78 @@ class ElectricalEngineeringSimulator(tk.Tk):
         ttk.Entry(left_frame, textvariable=self.loss_var, width=20).grid(row=row, column=1, pady=5)
         row += 1
 
+        ttk.Separator(left_frame, orient=tk.HORIZONTAL).grid(row=row, column=0, columnspan=2, sticky='ew', pady=10)
+        row += 1
+
+        # Power factor improvement study
+        ttk.Label(left_frame, text="Power Factor Improvement", font=('Arial', 10, 'bold')).grid(
+            row=row, column=0, columnspan=2, sticky='w', pady=5
+        )
+        row += 1
+
+        ttk.Label(left_frame, text="Annual Energy (kWh):").grid(row=row, column=0, sticky='w', pady=5)
+        self.pf_energy_var = tk.StringVar(value="1000000")
+        ttk.Entry(left_frame, textvariable=self.pf_energy_var, width=20).grid(row=row, column=1, pady=5)
+        row += 1
+
+        ttk.Label(left_frame, text="Max Demand (kVA):").grid(row=row, column=0, sticky='w', pady=5)
+        self.pf_demand_var = tk.StringVar(value="500")
+        ttk.Entry(left_frame, textvariable=self.pf_demand_var, width=20).grid(row=row, column=1, pady=5)
+        row += 1
+
+        ttk.Label(left_frame, text="Initial PF (lag):").grid(row=row, column=0, sticky='w', pady=5)
+        self.pf_initial_var = tk.StringVar(value="0.707")
+        ttk.Entry(left_frame, textvariable=self.pf_initial_var, width=20).grid(row=row, column=1, pady=5)
+        row += 1
+
+        ttk.Label(left_frame, text="Target PF (lag):").grid(row=row, column=0, sticky='w', pady=5)
+        self.pf_target_var = tk.StringVar(value="0.9")
+        ttk.Entry(left_frame, textvariable=self.pf_target_var, width=20).grid(row=row, column=1, pady=5)
+        row += 1
+
+        ttk.Label(left_frame, text="Demand Tariff (Rs/kVA·yr):").grid(row=row, column=0, sticky='w', pady=5)
+        self.pf_tariff_var = tk.StringVar(value="75")
+        ttk.Entry(left_frame, textvariable=self.pf_tariff_var, width=20).grid(row=row, column=1, pady=5)
+        row += 1
+
+        ttk.Label(left_frame, text="Energy Tariff (paise/unit):").grid(row=row, column=0, sticky='w', pady=5)
+        self.pf_energy_tariff_var = tk.StringVar(value="3")
+        ttk.Entry(left_frame, textvariable=self.pf_energy_tariff_var, width=20).grid(row=row, column=1, pady=5)
+        row += 1
+
+        ttk.Label(left_frame, text="Compensator Cost (Rs/kVA):").grid(row=row, column=0, sticky='w', pady=5)
+        self.compensator_cost_var = tk.StringVar(value="45")
+        ttk.Entry(left_frame, textvariable=self.compensator_cost_var, width=20).grid(row=row, column=1, pady=5)
+        row += 1
+
+        ttk.Label(left_frame, text="Annual Rate on Plant (%):").grid(row=row, column=0, sticky='w', pady=5)
+        self.plant_rate_var = tk.StringVar(value="10")
+        ttk.Entry(left_frame, textvariable=self.plant_rate_var, width=20).grid(row=row, column=1, pady=5)
+        row += 1
+
+        ttk.Button(left_frame, text="PF Improvement Analysis", command=self.calculate_pf_improvement,
+                   style='Accent.TButton').grid(row=row, column=0, columnspan=2, pady=10)
+        row += 1
+
+        # Tariff control buttons
+        control_bar = ttk.Frame(left_frame)
+        control_bar.grid(row=row, column=0, columnspan=2, pady=10, sticky='ew')
+
+        self.tariff_start_btn = ttk.Button(control_bar, text="Start Tariff", command=self.start_tariff_run,
+                                           style='Accent.TButton')
+        self.tariff_start_btn.pack(side=tk.LEFT, padx=2)
+
+        self.tariff_stop_btn = ttk.Button(control_bar, text="Stop", command=self.stop_tariff_run,
+                                          state='disabled')
+        self.tariff_stop_btn.pack(side=tk.LEFT, padx=2)
+
+        self.tariff_reset_btn = ttk.Button(control_bar, text="Reset", command=self.reset_tariff_inputs)
+        self.tariff_reset_btn.pack(side=tk.LEFT, padx=2)
+        row += 1
+
         # Calculate button
-        ttk.Button(left_frame, text="Calculate Tariff", command=self.calculate_tariff,
-                   style='Accent.TButton').grid(row=row, column=0, columnspan=2, pady=20)
+        ttk.Button(left_frame, text="Calculate Tariff Once", command=self.calculate_tariff,
+                   style='Accent.TButton').grid(row=row, column=0, columnspan=2, pady=10)
 
         # Results text widget
         self.results_text = tk.Text(right_frame, wrap=tk.WORD, font=('Courier', 10))
@@ -315,6 +417,9 @@ class ElectricalEngineeringSimulator(tk.Tk):
         scrollbar = ttk.Scrollbar(right_frame, command=self.results_text.yview)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         self.results_text.config(yscrollcommand=scrollbar.set)
+
+        # Ensure canvas resizes content properly
+        canvas.bind('<Configure>', lambda e: canvas.itemconfigure(inner_window, width=e.width))
 
     def create_dynamics_tab(self):
         """Create power system dynamics tab"""
@@ -369,12 +474,32 @@ class ElectricalEngineeringSimulator(tk.Tk):
         self.delta0_label.grid(row=3, column=2, padx=5, pady=5)
         self.delta0_var.trace('w', lambda *args: self.delta0_label.config(text=f"{self.delta0_var.get():.1f}"))
 
+        # Simulation duration
+        ttk.Label(params_frame, text="Simulation Time (s):").grid(row=4, column=0, padx=5, pady=5, sticky='w')
+        self.time_var = tk.DoubleVar(value=10.0)
+        self.time_scale = ttk.Scale(params_frame, from_=1.0, to=30.0, variable=self.time_var,
+                                     orient=tk.HORIZONTAL, length=200)
+        self.time_scale.grid(row=4, column=1, padx=5, pady=5)
+        self.time_label = ttk.Label(params_frame, text="10.0")
+        self.time_label.grid(row=4, column=2, padx=5, pady=5)
+        self.time_var.trace('w', lambda *args: self.time_label.config(text=f"{self.time_var.get():.1f}"))
+
+        # Time-step
+        ttk.Label(params_frame, text="Time Step Δt (s):").grid(row=5, column=0, padx=5, pady=5, sticky='w')
+        self.dt_var = tk.DoubleVar(value=0.01)
+        self.dt_scale = ttk.Scale(params_frame, from_=0.001, to=0.05, variable=self.dt_var,
+                                   orient=tk.HORIZONTAL, length=200)
+        self.dt_scale.grid(row=5, column=1, padx=5, pady=5)
+        self.dt_label = ttk.Label(params_frame, text="0.01")
+        self.dt_label.grid(row=5, column=2, padx=5, pady=5)
+        self.dt_var.trace('w', lambda *args: self.dt_label.config(text=f"{self.dt_var.get():.3f}"))
+
         # Solver selection
         ttk.Label(params_frame, text="ODE Solver:").grid(row=4, column=0, padx=5, pady=5, sticky='w')
         self.solver_var = tk.StringVar(value="RK45")
         solver_combo = ttk.Combobox(params_frame, textvariable=self.solver_var,
                                      values=["RK45", "Euler"], state='readonly', width=18)
-        solver_combo.grid(row=4, column=1, padx=5, pady=5, sticky='w')
+        solver_combo.grid(row=6, column=1, padx=5, pady=5, sticky='w')
 
         # Buttons frame
         buttons_frame = ttk.Frame(control_frame)
@@ -601,6 +726,110 @@ class ElectricalEngineeringSimulator(tk.Tk):
         except Exception as e:
             messagebox.showerror("Error", f"An error occurred: {str(e)}")
 
+    def start_tariff_run(self):
+        """Start automatic tariff updates until stopped."""
+        if self.tariff_running:
+            return
+
+        self.tariff_running = True
+        self.tariff_start_btn.config(state='disabled')
+        self.tariff_stop_btn.config(state='normal')
+        self._tariff_update_loop()
+
+    def _tariff_update_loop(self):
+        """Loop tariff calculations while running."""
+        if not self.tariff_running:
+            return
+        self.calculate_tariff()
+        self.after(1500, self._tariff_update_loop)
+
+    def stop_tariff_run(self):
+        """Stop automatic tariff calculations."""
+        self.tariff_running = False
+        self.tariff_start_btn.config(state='normal')
+        self.tariff_stop_btn.config(state='disabled')
+
+    def reset_tariff_inputs(self):
+        """Reset tariff inputs to defaults and clear results."""
+        self.stop_tariff_run()
+        self.energy_var.set("390000000")
+        self.max_demand_var.set("130")
+        self.fuel_cost_var.set("37.5")
+        self.gen_cost_var.set("18")
+        self.trans_cost_var.set("37.5")
+        self.dist_cost_var.set("25.5")
+        self.fuel_run_var.set("90")
+        self.gen_run_var.set("10")
+        self.trans_run_var.set("5")
+        self.dist_run_var.set("7")
+        self.loss_var.set("10")
+        self.pf_energy_var.set("1000000")
+        self.pf_demand_var.set("500")
+        self.pf_initial_var.set("0.707")
+        self.pf_target_var.set("0.9")
+        self.pf_tariff_var.set("75")
+        self.pf_energy_tariff_var.set("3")
+        self.compensator_cost_var.set("45")
+        self.plant_rate_var.set("10")
+        self.results_text.delete('1.0', tk.END)
+
+    def calculate_pf_improvement(self):
+        """Calculate annual cost and savings for power factor correction"""
+        try:
+            energy_kwh = float(self.pf_energy_var.get())
+            max_demand_kva = float(self.pf_demand_var.get())
+            pf_initial = float(self.pf_initial_var.get())
+            pf_target = float(self.pf_target_var.get())
+            demand_tariff = float(self.pf_tariff_var.get())
+            energy_tariff_paise = float(self.pf_energy_tariff_var.get())
+            compensator_cost = float(self.compensator_cost_var.get())
+            annual_rate = float(self.plant_rate_var.get())
+
+            # Base values
+            active_power_kw = max_demand_kva * pf_initial
+            kvar_initial = active_power_kw * np.tan(np.arccos(pf_initial))
+            kvar_target = active_power_kw * np.tan(np.arccos(pf_target))
+            kvar_required = max(kvar_initial - kvar_target, 0)
+
+            new_demand_kva = active_power_kw / pf_target
+
+            # Tariff calculations
+            energy_cost_rs = energy_kwh * (energy_tariff_paise / 100)
+            annual_cost_before = max_demand_kva * demand_tariff + energy_cost_rs
+            annual_cost_after = new_demand_kva * demand_tariff + energy_cost_rs
+
+            # Plant economics
+            plant_capex = compensator_cost * kvar_required
+            annual_plant_cost = annual_rate / 100 * plant_capex
+
+            gross_saving = annual_cost_before - annual_cost_after
+            net_saving = gross_saving - annual_plant_cost
+
+            pf_output = "\n" + "=" * 70 + "\n"
+            pf_output += "POWER FACTOR CORRECTION STUDY\n"
+            pf_output += "=" * 70 + "\n"
+            pf_output += f"Active Power (kW):             {active_power_kw:>12.2f}\n"
+            pf_output += f"Initial Reactive Power (kVAr): {kvar_initial:>12.2f}\n"
+            pf_output += f"Target Reactive Power (kVAr):  {kvar_target:>12.2f}\n"
+            pf_output += f"Required Compensator (kVAr):   {kvar_required:>12.2f}\n"
+            pf_output += f"New Maximum Demand (kVA):      {new_demand_kva:>12.2f}\n\n"
+
+            pf_output += "ANNUAL COSTING (Rs)\n"
+            pf_output += "-" * 70 + "\n"
+            pf_output += f"Before Improvement:            {annual_cost_before:>12.2f}\n"
+            pf_output += f"After Improvement:             {annual_cost_after:>12.2f}\n"
+            pf_output += f"Gross Saving:                  {gross_saving:>12.2f}\n"
+            pf_output += f"Annual Plant Cost (@{annual_rate:.1f}%):   {annual_plant_cost:>12.2f}\n"
+            pf_output += f"Net Annual Saving:             {net_saving:>12.2f}\n"
+
+            self.results_text.insert(tk.END, pf_output)
+            self.results_text.see(tk.END)
+
+        except ValueError:
+            messagebox.showerror("Input Error", "Please enter valid numeric values for the PF study")
+        except Exception as exc:
+            messagebox.showerror("Error", f"An error occurred: {exc}")
+
     def start_simulation(self):
         """Start generator dynamics simulation"""
         self.running = True
@@ -650,37 +879,57 @@ class ElectricalEngineeringSimulator(tk.Tk):
         omega0 = 0.0
         y0 = np.array([delta0_rad, omega0])
 
-        # Time parameters
-        t_span = (0, 10)
-        dt = 0.01
-
-        # Solve ODE
+        total_time = self.time_var.get()
+        dt = self.dt_var.get()
         solver = ODESolver()
-        if self.solver_var.get() == "RK45":
-            t, y = solver.rk45(dynamics.swing_equation, y0, t_span, dt)
-        else:
-            t, y = solver.euler(dynamics.swing_equation, y0, t_span, dt)
 
-        # Convert delta to degrees
-        delta_deg = np.rad2deg(y[:, 0])
-        omega = y[:, 1]
-
-        # Update plots
+        # Prepare plots for live update
         self.ax1.clear()
         self.ax2.clear()
-
-        self.ax1.plot(t, delta_deg, 'b-', linewidth=2)
         self.ax1.set_xlabel('Time (s)')
         self.ax1.set_ylabel('Rotor Angle δ (deg)')
         self.ax1.grid(True, alpha=0.3)
         self.ax1.set_title(f'Generator Rotor Angle (Swing Equation) - Solver: {self.solver_var.get()}')
 
-        self.ax2.plot(t, omega, 'r-', linewidth=2)
         self.ax2.set_xlabel('Time (s)')
         self.ax2.set_ylabel('Speed Deviation Δω (rad/s)')
         self.ax2.grid(True, alpha=0.3)
         self.ax2.set_title('Rotor Speed Deviation')
 
+        t_values = [0.0]
+        states = [y0]
+        redraw_interval = max(1, int(0.1 / dt))
+
+        current_t = 0.0
+        current_state = y0
+
+        while self.running and current_t < total_time:
+            if self.solver_var.get() == "RK45":
+                next_state = solver.rk4_step(dynamics.swing_equation, current_t, current_state, dt)
+            else:
+                next_state = solver.euler_step(dynamics.swing_equation, current_t, current_state, dt)
+
+            current_t += dt
+            current_state = next_state
+            t_values.append(current_t)
+            states.append(current_state)
+
+            if len(t_values) % redraw_interval == 0:
+                y_array = np.array(states)
+                delta_deg = np.rad2deg(y_array[:, 0])
+                omega = y_array[:, 1]
+                self.ax1.plot(t_values, delta_deg, 'b-', linewidth=2)
+                self.ax2.plot(t_values, omega, 'r-', linewidth=2)
+                self.fig_dynamics.tight_layout()
+                self.canvas_dynamics.draw()
+                time.sleep(0.01)
+
+        # Final update
+        y_array = np.array(states)
+        delta_deg = np.rad2deg(y_array[:, 0])
+        omega = y_array[:, 1]
+        self.ax1.plot(t_values, delta_deg, 'b-', linewidth=2)
+        self.ax2.plot(t_values, omega, 'r-', linewidth=2)
         self.fig_dynamics.tight_layout()
         self.canvas_dynamics.draw()
 
@@ -778,8 +1027,17 @@ class ElectricalEngineeringSimulator(tk.Tk):
 
     def on_resize(self, event):
         """Handle window resize event"""
-        # This allows automatic scaling of the GUI
-        pass
+        if event.widget is not self:
+            return
+
+        new_w = max(self.winfo_width() - 40, 600)
+        new_h = max(self.winfo_height() - 120, 400)
+
+        if hasattr(self, 'canvas_dynamics'):
+            self.canvas_dynamics.get_tk_widget().config(width=new_w, height=new_h // 2)
+        if hasattr(self, 'canvas_rlc'):
+            self.canvas_rlc.get_tk_widget().config(width=new_w, height=new_h // 2)
+        self.update_idletasks()
 
 
 def main():
