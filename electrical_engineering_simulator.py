@@ -192,6 +192,43 @@ class PowerSystemDynamics:
         return np.array([di_dt, dv_c_dt])
 
 
+class TransformerEfficiencyCalculator:
+    """Compute all-day efficiency for transformer operating schedules"""
+
+    def __init__(self, rating_kva, core_loss_w, copper_loss_w, power_factor=1.0):
+        self.rating_kva = rating_kva
+        self.core_loss_w = core_loss_w
+        self.copper_loss_w = copper_loss_w
+        self.power_factor = power_factor
+
+    def all_day_efficiency(self, schedule):
+        """
+        Calculate all-day efficiency.
+
+        Args:
+            schedule: Iterable of tuples (hours, load_fraction)
+        """
+        output_energy = 0.0
+        copper_energy_loss = 0.0
+        core_energy_loss = self.core_loss_w * 24 / 1000  # kWh over a day
+
+        for hours, fraction in schedule:
+            load_kw = self.rating_kva * fraction * self.power_factor
+            output_energy += load_kw * hours
+            copper_energy_loss += (fraction ** 2) * self.copper_loss_w * hours / 1000
+
+        total_losses = core_energy_loss + copper_energy_loss
+        efficiency = output_energy / (output_energy + total_losses) if (output_energy + total_losses) > 0 else 0
+
+        return {
+            'output_energy_kwh': output_energy,
+            'core_loss_kwh': core_energy_loss,
+            'copper_loss_kwh': copper_energy_loss,
+            'total_losses_kwh': total_losses,
+            'efficiency': efficiency * 100
+        }
+
+
 class ElectricalEngineeringSimulator(tk.Tk):
     """Main application class"""
 
@@ -205,12 +242,46 @@ class ElectricalEngineeringSimulator(tk.Tk):
         # Simulation control
         self.running = False
         self.solver_type = "RK45"
+        self.autoscale_enabled = True
 
         # Create GUI
+        self.create_menus()
         self.create_widgets()
 
         # Bind resize event
         self.bind('<Configure>', self.on_resize)
+
+    def create_menus(self):
+        """Create a simple application menu"""
+        menubar = tk.Menu(self)
+
+        file_menu = tk.Menu(menubar, tearoff=0)
+        file_menu.add_command(label="Reset All", command=self.reset_all_views)
+        file_menu.add_separator()
+        file_menu.add_command(label="Exit", command=self.destroy)
+        menubar.add_cascade(label="File", menu=file_menu)
+
+        view_menu = tk.Menu(menubar, tearoff=0)
+        self.autoscale_var = tk.BooleanVar(value=self.autoscale_enabled)
+        view_menu.add_checkbutton(
+            label="Autoscale Plots", onvalue=True, offvalue=False,
+            variable=self.autoscale_var,
+            command=self.toggle_autoscale
+        )
+        menubar.add_cascade(label="View", menu=view_menu)
+
+        help_menu = tk.Menu(menubar, tearoff=0)
+        help_menu.add_command(
+            label="About",
+            command=lambda: messagebox.showinfo(
+                "About",
+                "Advanced Electrical Engineering Simulator\n"
+                "Dynamic labs for tariff, transformers, and machine models"
+            )
+        )
+        menubar.add_cascade(label="Help", menu=help_menu)
+
+        self.config(menu=menubar)
 
     def create_widgets(self):
         """Create all GUI widgets"""
@@ -222,6 +293,7 @@ class ElectricalEngineeringSimulator(tk.Tk):
         self.create_tariff_tab()
         self.create_dynamics_tab()
         self.create_rlc_tab()
+        self.create_transformer_tab()
 
     def create_tariff_tab(self):
         """Create tariff calculator tab"""
@@ -952,7 +1024,198 @@ class ElectricalEngineeringSimulator(tk.Tk):
             self.canvas_dynamics.get_tk_widget().config(width=new_w, height=new_h // 2)
         if hasattr(self, 'canvas_rlc'):
             self.canvas_rlc.get_tk_widget().config(width=new_w, height=new_h // 2)
+        if hasattr(self, 'canvas_transformer'):
+            self.canvas_transformer.get_tk_widget().config(width=new_w, height=new_h // 3)
+
         self.update_idletasks()
+
+        if self.autoscale_enabled:
+            for axis in [getattr(self, 'ax1', None), getattr(self, 'ax2', None),
+                         getattr(self, 'ax_rlc1', None), getattr(self, 'ax_rlc2', None)]:
+                if axis:
+                    axis.relim()
+                    axis.autoscale_view()
+            if hasattr(self, 'fig_transformer'):
+                for axis in self.fig_transformer.axes:
+                    axis.relim()
+                    axis.autoscale_view()
+            if hasattr(self, 'canvas_dynamics'):
+                self.canvas_dynamics.draw()
+            if hasattr(self, 'canvas_rlc'):
+                self.canvas_rlc.draw()
+            if hasattr(self, 'canvas_transformer'):
+                self.canvas_transformer.draw()
+
+    def create_transformer_tab(self):
+        """Create transformer all-day efficiency comparison tab"""
+        tab = ttk.Frame(self.notebook)
+        self.notebook.add(tab, text="Transformer Lab")
+
+        top_frame = ttk.Frame(tab)
+        top_frame.pack(fill=tk.X, padx=10, pady=10)
+
+        ttk.Label(top_frame, text="Lighting Load Schedule (hours):", font=('Arial', 11, 'bold')).grid(
+            row=0, column=0, sticky='w', pady=5
+        )
+        self.full_load_hours = tk.DoubleVar(value=4.0)
+        self.half_load_hours = tk.DoubleVar(value=8.0)
+        self.no_load_hours = tk.DoubleVar(value=12.0)
+
+        ttk.Label(top_frame, text="Full-load hours:").grid(row=1, column=0, sticky='w', padx=5)
+        ttk.Scale(top_frame, from_=0, to=24, variable=self.full_load_hours, orient=tk.HORIZONTAL, length=200,
+                  command=lambda _v: self.sync_no_load_hours()).grid(row=1, column=1, padx=5)
+        self.full_label = ttk.Label(top_frame, text="4.0")
+        self.full_label.grid(row=1, column=2, padx=5)
+        self.full_load_hours.trace('w', lambda *args: self.full_label.config(text=f"{self.full_load_hours.get():.1f}"))
+
+        ttk.Label(top_frame, text="Half-load hours:").grid(row=2, column=0, sticky='w', padx=5)
+        ttk.Scale(top_frame, from_=0, to=24, variable=self.half_load_hours, orient=tk.HORIZONTAL, length=200,
+                  command=lambda _v: self.sync_no_load_hours()).grid(row=2, column=1, padx=5)
+        self.half_label = ttk.Label(top_frame, text="8.0")
+        self.half_label.grid(row=2, column=2, padx=5)
+        self.half_load_hours.trace('w', lambda *args: self.half_label.config(text=f"{self.half_load_hours.get():.1f}"))
+
+        ttk.Label(top_frame, text="No-load hours (auto):").grid(row=3, column=0, sticky='w', padx=5)
+        self.no_label = ttk.Label(top_frame, text="12.0")
+        self.no_label.grid(row=3, column=1, sticky='w', padx=5)
+
+        ttk.Separator(top_frame, orient=tk.VERTICAL).grid(row=0, column=3, rowspan=4, sticky='ns', padx=10)
+
+        params_frame = ttk.LabelFrame(tab, text="Transformer Parameters", padding=10)
+        params_frame.pack(fill=tk.X, padx=10, pady=10)
+
+        ttk.Label(params_frame, text="Rating (kVA):").grid(row=0, column=0, sticky='w', padx=5, pady=5)
+        self.rating_var = tk.DoubleVar(value=40.0)
+        ttk.Entry(params_frame, textvariable=self.rating_var, width=10).grid(row=0, column=1, padx=5, pady=5)
+
+        ttk.Label(params_frame, text="Power Factor (lighting pf≈1.0):").grid(row=0, column=2, sticky='w', padx=5, pady=5)
+        self.pf_var = tk.DoubleVar(value=1.0)
+        ttk.Entry(params_frame, textvariable=self.pf_var, width=10).grid(row=0, column=3, padx=5, pady=5)
+
+        ttk.Label(params_frame, text="Core Loss A (W):").grid(row=1, column=0, sticky='w', padx=5, pady=5)
+        self.core_a_var = tk.DoubleVar(value=500)
+        ttk.Entry(params_frame, textvariable=self.core_a_var, width=10).grid(row=1, column=1, padx=5, pady=5)
+
+        ttk.Label(params_frame, text="Copper Loss A (W):").grid(row=1, column=2, sticky='w', padx=5, pady=5)
+        self.copper_a_var = tk.DoubleVar(value=500)
+        ttk.Entry(params_frame, textvariable=self.copper_a_var, width=10).grid(row=1, column=3, padx=5, pady=5)
+
+        ttk.Label(params_frame, text="Core Loss B (W):").grid(row=2, column=0, sticky='w', padx=5, pady=5)
+        self.core_b_var = tk.DoubleVar(value=250)
+        ttk.Entry(params_frame, textvariable=self.core_b_var, width=10).grid(row=2, column=1, padx=5, pady=5)
+
+        ttk.Label(params_frame, text="Copper Loss B (W):").grid(row=2, column=2, sticky='w', padx=5, pady=5)
+        self.copper_b_var = tk.DoubleVar(value=750)
+        ttk.Entry(params_frame, textvariable=self.copper_b_var, width=10).grid(row=2, column=3, padx=5, pady=5)
+
+        ttk.Button(params_frame, text="Compare All-Day Efficiency", style='Accent.TButton',
+                   command=self.calculate_transformer_efficiency).grid(row=3, column=0, columnspan=4, pady=10)
+
+        results_frame = ttk.Frame(tab)
+        results_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+        self.transformer_text = tk.Text(results_frame, height=10, wrap=tk.WORD, font=('Courier', 10))
+        self.transformer_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scroll = ttk.Scrollbar(results_frame, command=self.transformer_text.yview)
+        scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        self.transformer_text.configure(yscrollcommand=scroll.set)
+
+        # Visualization
+        self.fig_transformer = Figure(figsize=(8, 4))
+        self.ax_trans_load = self.fig_transformer.add_subplot(121)
+        self.ax_trans_eff = self.fig_transformer.add_subplot(122)
+
+        canvas_frame = ttk.Frame(tab)
+        canvas_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        self.canvas_transformer = FigureCanvasTkAgg(self.fig_transformer, master=canvas_frame)
+        self.canvas_transformer.draw()
+        self.canvas_transformer.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+
+        self.update_transformer_plot([], {})
+
+    def toggle_autoscale(self):
+        """Toggle autoscaling of plots"""
+        self.autoscale_enabled = not self.autoscale_enabled
+        if hasattr(self, 'autoscale_var'):
+            self.autoscale_var.set(self.autoscale_enabled)
+
+    def reset_all_views(self):
+        """Reset plots and text outputs"""
+        self.reset_simulation()
+        self.reset_rlc_simulation()
+        self.transformer_text.delete(1.0, tk.END)
+        self.update_transformer_plot([], {})
+
+    def sync_no_load_hours(self):
+        """Keep the schedule totaling 24 hours"""
+        remaining = max(24.0 - self.full_load_hours.get() - self.half_load_hours.get(), 0)
+        self.no_load_hours.set(remaining)
+        self.no_label.config(text=f"{remaining:.1f}")
+
+    def calculate_transformer_efficiency(self):
+        """Compute and display all-day efficiency for two transformers"""
+        try:
+            schedule = [
+                (self.full_load_hours.get(), 1.0),
+                (self.half_load_hours.get(), 0.5),
+                (self.no_load_hours.get(), 0.0),
+            ]
+
+            rating = self.rating_var.get()
+            pf = self.pf_var.get()
+
+            tra = TransformerEfficiencyCalculator(rating, self.core_a_var.get(), self.copper_a_var.get(), pf)
+            trb = TransformerEfficiencyCalculator(rating, self.core_b_var.get(), self.copper_b_var.get(), pf)
+
+            res_a = tra.all_day_efficiency(schedule)
+            res_b = trb.all_day_efficiency(schedule)
+
+            summary = "Transformer All-Day Efficiency Study\n" + "=" * 70 + "\n"
+            summary += f"Schedule: {schedule[0][0]:.1f}h @ 100%, {schedule[1][0]:.1f}h @ 50%, {schedule[2][0]:.1f}h @ 0%\n"
+            summary += f"Rating: {rating:.1f} kVA, Power Factor: {pf:.2f}\n\n"
+
+            for name, res in [("Transformer A", res_a), ("Transformer B", res_b)]:
+                summary += f"{name}:\n"
+                summary += f"  Output Energy: {res['output_energy_kwh']:.2f} kWh\n"
+                summary += f"  Core Loss:     {res['core_loss_kwh']:.2f} kWh\n"
+                summary += f"  Copper Loss:   {res['copper_loss_kwh']:.2f} kWh\n"
+                summary += f"  Total Losses:  {res['total_losses_kwh']:.2f} kWh\n"
+                summary += f"  All-Day Eff.:  {res['efficiency']:.2f}%\n\n"
+
+            better = "A" if res_a['efficiency'] > res_b['efficiency'] else "B"
+            summary += f"More efficient for the given lighting duty: Transformer {better}.\n"
+
+            self.transformer_text.delete(1.0, tk.END)
+            self.transformer_text.insert(1.0, summary)
+            self.update_transformer_plot(schedule, {"A": res_a, "B": res_b})
+
+        except Exception as exc:
+            messagebox.showerror("Calculation Error", f"Unable to compute efficiency: {exc}")
+
+    def update_transformer_plot(self, schedule, results):
+        """Update transformer visualizations"""
+        self.ax_trans_load.clear()
+        self.ax_trans_eff.clear()
+
+        if schedule:
+            labels = ['Full Load', 'Half Load', 'No Load']
+            hours = [schedule[0][0], schedule[1][0], schedule[2][0]]
+            self.ax_trans_load.bar(labels, hours, color=['#1f77b4', '#ff7f0e', '#2ca02c'])
+            self.ax_trans_load.set_ylabel('Hours per day')
+            self.ax_trans_load.set_title('Daily Loading Profile')
+            self.ax_trans_load.grid(True, axis='y', alpha=0.3)
+
+        if results:
+            names = list(results.keys())
+            efficiencies = [results[n]['efficiency'] for n in names]
+            self.ax_trans_eff.bar(names, efficiencies, color=['#9467bd', '#8c564b'])
+            self.ax_trans_eff.set_ylim(0, 100)
+            self.ax_trans_eff.set_ylabel('All-Day Efficiency (%)')
+            self.ax_trans_eff.set_title('Transformer Comparison')
+            self.ax_trans_eff.grid(True, axis='y', alpha=0.3)
+
+        self.fig_transformer.tight_layout()
+        self.canvas_transformer.draw()
 
 
 def main():
