@@ -49,6 +49,135 @@ class ODESolver:
         return t, y
 
 
+class CompoundGeneratorCalculator:
+    """Calculate compound generator parameters"""
+
+    def __init__(self, power_kw, voltage_v, speed_rpm, poles, diameter_m, length_m, slot_pitch_m, flux_wb):
+        """
+        Initialize compound generator calculator
+
+        Args:
+            power_kw: Power rating in kW
+            voltage_v: Voltage in V
+            speed_rpm: Speed in rpm
+            poles: Number of poles
+            diameter_m: External diameter of armature in m
+            length_m: Gross armature length in m
+            slot_pitch_m: Armature slot pitch in m
+            flux_wb: Flux per pole in Wb
+        """
+        self.power_kw = power_kw
+        self.voltage_v = voltage_v
+        self.speed_rpm = speed_rpm
+        self.poles = poles
+        self.diameter_m = diameter_m
+        self.length_m = length_m
+        self.slot_pitch_m = slot_pitch_m
+        self.flux_wb = flux_wb
+        
+        self.results = {}
+        self.calculate()
+
+    def calculate(self):
+        """Perform all generator calculations"""
+        # EMF equation: E = (φ × Z × N × P) / (60 × A)
+        # Where: E = EMF, φ = flux per pole, Z = number of conductors
+        # N = speed in rpm, P = number of poles, A = number of parallel paths
+        
+        # For compound generator (lap or wave winding)
+        # Assume wave winding: A = 2
+        # Assume lap winding: A = P
+        
+        # Generated EMF (assuming 5% voltage drop)
+        emf = self.voltage_v * 1.05  # Account for voltage drop
+        
+        # Calculate number of conductors using EMF equation
+        # E = (φ × Z × N × P) / (60 × A)
+        # For wave winding: A = 2
+        A_wave = 2
+        Z_wave = (emf * 60 * A_wave) / (self.flux_wb * self.speed_rpm * self.poles)
+        
+        # For lap winding: A = P
+        A_lap = self.poles
+        Z_lap = (emf * 60 * A_lap) / (self.flux_wb * self.speed_rpm * self.poles)
+        
+        # Choose wave winding as it's more common for high voltage machines
+        Z = Z_wave
+        A = A_wave
+        
+        # Round to nearest even number (conductors come in pairs)
+        Z = int(np.round(Z / 2) * 2)
+        
+        # Calculate number of slots
+        # Circumference of armature
+        circumference = np.pi * self.diameter_m
+        
+        # Number of slots = Circumference / slot pitch
+        num_slots = int(np.round(circumference / self.slot_pitch_m))
+        
+        # Conductors per slot
+        conductors_per_slot = Z / num_slots
+        
+        # Calculate armature current
+        # Power = Voltage × Current
+        armature_current = (self.power_kw * 1000) / self.voltage_v
+        
+        # Calculate conductor cross-sectional area
+        # Current density for copper: typically 4-6 A/mm²
+        current_density = 5.0  # A/mm²
+        current_per_conductor = armature_current / (Z / 2)  # Z/2 parallel paths for wave
+        conductor_area_mm2 = current_per_conductor / current_density
+        
+        # Calculate resistance of armature winding
+        # Mean length of turn
+        pole_pitch = (np.pi * self.diameter_m) / self.poles
+        mean_length_turn = 2 * (self.length_m + pole_pitch)
+        
+        # Total length of conductor
+        total_length = mean_length_turn * Z
+        
+        # Resistance of copper at 75°C
+        # Resistivity of copper at 75°C ≈ 0.021 Ω·mm²/m
+        resistivity_copper = 0.021  # Ω·mm²/m
+        
+        # Resistance = (ρ × length) / area
+        conductor_resistance = (resistivity_copper * total_length) / conductor_area_mm2
+        
+        # For wave winding with 2 parallel paths
+        armature_resistance = conductor_resistance / (A / 2)
+        
+        # Calculate specific electric loading
+        # q = (total ampere-conductors) / (armature periphery)
+        specific_electric_loading = (armature_current * Z) / circumference
+        
+        # Calculate specific magnetic loading
+        # Average flux density in air gap
+        avg_flux_density = self.flux_wb / (pole_pitch * self.length_m)
+        
+        # Store results
+        self.results = {
+            'emf': emf,
+            'num_conductors': int(Z),
+            'num_slots': num_slots,
+            'conductors_per_slot': conductors_per_slot,
+            'armature_resistance': armature_resistance,
+            'armature_current': armature_current,
+            'winding_type': 'Wave',
+            'parallel_paths': A,
+            'conductor_area_mm2': conductor_area_mm2,
+            'mean_length_turn': mean_length_turn,
+            'total_conductor_length': total_length,
+            'pole_pitch': pole_pitch,
+            'circumference': circumference,
+            'specific_electric_loading': specific_electric_loading,
+            'avg_flux_density': avg_flux_density,
+            'current_per_conductor': current_per_conductor,
+            'current_density': current_density
+        }
+        
+        return self.results
+
+
 class TariffCalculator:
     """Calculate electricity tariff and related parameters"""
 
@@ -205,9 +334,299 @@ class ElectricalEngineeringSimulator(tk.Tk):
         self.notebook.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
 
         # Create tabs
+        self.create_compound_generator_tab()
         self.create_tariff_tab()
         self.create_dynamics_tab()
         self.create_rlc_tab()
+
+    def create_compound_generator_tab(self):
+        """Create compound generator calculator tab"""
+        tab = ttk.Frame(self.notebook)
+        self.notebook.add(tab, text="Compound Generator")
+
+        # Main container with two panels
+        main_frame = ttk.Frame(tab)
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+        # Left panel - Inputs
+        left_frame = ttk.LabelFrame(main_frame, text="Generator Parameters", padding=10)
+        left_frame.grid(row=0, column=0, sticky='nsew', padx=5, pady=5)
+
+        # Right panel - Results
+        right_frame = ttk.LabelFrame(main_frame, text="Calculation Results", padding=10)
+        right_frame.grid(row=0, column=1, sticky='nsew', padx=5, pady=5)
+
+        main_frame.columnconfigure(0, weight=1)
+        main_frame.columnconfigure(1, weight=2)
+        main_frame.rowconfigure(0, weight=1)
+
+        # Input fields with sliders
+        row = 0
+
+        # Power
+        ttk.Label(left_frame, text="Power Rating (kW):").grid(row=row, column=0, sticky='w', pady=5)
+        self.gen_power_var = tk.DoubleVar(value=500.0)
+        power_frame = ttk.Frame(left_frame)
+        power_frame.grid(row=row, column=1, sticky='ew', pady=5)
+        ttk.Entry(power_frame, textvariable=self.gen_power_var, width=10).pack(side=tk.LEFT, padx=2)
+        ttk.Scale(power_frame, from_=100, to=2000, variable=self.gen_power_var, 
+                  orient=tk.HORIZONTAL, length=150).pack(side=tk.LEFT, padx=2)
+        row += 1
+
+        # Voltage
+        ttk.Label(left_frame, text="Voltage (V):").grid(row=row, column=0, sticky='w', pady=5)
+        self.gen_voltage_var = tk.DoubleVar(value=440.0)
+        voltage_frame = ttk.Frame(left_frame)
+        voltage_frame.grid(row=row, column=1, sticky='ew', pady=5)
+        ttk.Entry(voltage_frame, textvariable=self.gen_voltage_var, width=10).pack(side=tk.LEFT, padx=2)
+        ttk.Scale(voltage_frame, from_=220, to=1000, variable=self.gen_voltage_var,
+                  orient=tk.HORIZONTAL, length=150).pack(side=tk.LEFT, padx=2)
+        row += 1
+
+        # Speed
+        ttk.Label(left_frame, text="Speed (rpm):").grid(row=row, column=0, sticky='w', pady=5)
+        self.gen_speed_var = tk.DoubleVar(value=375.0)
+        speed_frame = ttk.Frame(left_frame)
+        speed_frame.grid(row=row, column=1, sticky='ew', pady=5)
+        ttk.Entry(speed_frame, textvariable=self.gen_speed_var, width=10).pack(side=tk.LEFT, padx=2)
+        ttk.Scale(speed_frame, from_=100, to=1500, variable=self.gen_speed_var,
+                  orient=tk.HORIZONTAL, length=150).pack(side=tk.LEFT, padx=2)
+        row += 1
+
+        # Number of poles
+        ttk.Label(left_frame, text="Number of Poles:").grid(row=row, column=0, sticky='w', pady=5)
+        self.gen_poles_var = tk.IntVar(value=8)
+        poles_frame = ttk.Frame(left_frame)
+        poles_frame.grid(row=row, column=1, sticky='ew', pady=5)
+        ttk.Entry(poles_frame, textvariable=self.gen_poles_var, width=10).pack(side=tk.LEFT, padx=2)
+        ttk.Scale(poles_frame, from_=2, to=16, variable=self.gen_poles_var,
+                  orient=tk.HORIZONTAL, length=150).pack(side=tk.LEFT, padx=2)
+        row += 1
+
+        # Armature diameter
+        ttk.Label(left_frame, text="Armature Diameter (m):").grid(row=row, column=0, sticky='w', pady=5)
+        self.gen_diameter_var = tk.DoubleVar(value=1.1)
+        diameter_frame = ttk.Frame(left_frame)
+        diameter_frame.grid(row=row, column=1, sticky='ew', pady=5)
+        ttk.Entry(diameter_frame, textvariable=self.gen_diameter_var, width=10).pack(side=tk.LEFT, padx=2)
+        ttk.Scale(diameter_frame, from_=0.3, to=3.0, variable=self.gen_diameter_var,
+                  orient=tk.HORIZONTAL, length=150).pack(side=tk.LEFT, padx=2)
+        row += 1
+
+        # Armature length
+        ttk.Label(left_frame, text="Armature Length (m):").grid(row=row, column=0, sticky='w', pady=5)
+        self.gen_length_var = tk.DoubleVar(value=0.3)
+        length_frame = ttk.Frame(left_frame)
+        length_frame.grid(row=row, column=1, sticky='ew', pady=5)
+        ttk.Entry(length_frame, textvariable=self.gen_length_var, width=10).pack(side=tk.LEFT, padx=2)
+        ttk.Scale(length_frame, from_=0.1, to=1.0, variable=self.gen_length_var,
+                  orient=tk.HORIZONTAL, length=150).pack(side=tk.LEFT, padx=2)
+        row += 1
+
+        # Slot pitch
+        ttk.Label(left_frame, text="Slot Pitch (m):").grid(row=row, column=0, sticky='w', pady=5)
+        self.gen_slot_pitch_var = tk.DoubleVar(value=0.025)
+        slot_pitch_frame = ttk.Frame(left_frame)
+        slot_pitch_frame.grid(row=row, column=1, sticky='ew', pady=5)
+        ttk.Entry(slot_pitch_frame, textvariable=self.gen_slot_pitch_var, width=10).pack(side=tk.LEFT, padx=2)
+        ttk.Scale(slot_pitch_frame, from_=0.01, to=0.1, variable=self.gen_slot_pitch_var,
+                  orient=tk.HORIZONTAL, length=150).pack(side=tk.LEFT, padx=2)
+        row += 1
+
+        # Flux per pole
+        ttk.Label(left_frame, text="Flux per Pole (Wb):").grid(row=row, column=0, sticky='w', pady=5)
+        self.gen_flux_var = tk.DoubleVar(value=0.0875)
+        flux_frame = ttk.Frame(left_frame)
+        flux_frame.grid(row=row, column=1, sticky='ew', pady=5)
+        ttk.Entry(flux_frame, textvariable=self.gen_flux_var, width=10).pack(side=tk.LEFT, padx=2)
+        ttk.Scale(flux_frame, from_=0.01, to=0.2, variable=self.gen_flux_var,
+                  orient=tk.HORIZONTAL, length=150).pack(side=tk.LEFT, padx=2)
+        row += 1
+
+        # Calculate button
+        ttk.Button(left_frame, text="Calculate Parameters", command=self.calculate_generator,
+                   style='Accent.TButton').grid(row=row, column=0, columnspan=2, pady=20)
+        row += 1
+
+        # Reset button
+        ttk.Button(left_frame, text="Reset to Default", command=self.reset_generator_params).grid(
+            row=row, column=0, columnspan=2, pady=5)
+
+        # Results text widget
+        self.gen_results_text = tk.Text(right_frame, wrap=tk.WORD, font=('Courier', 10))
+        self.gen_results_text.pack(fill=tk.BOTH, expand=True)
+
+        # Scrollbar for results
+        scrollbar = ttk.Scrollbar(right_frame, command=self.gen_results_text.yview)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.gen_results_text.config(yscrollcommand=scrollbar.set)
+
+        # Visualization frame at bottom
+        viz_frame = ttk.LabelFrame(tab, text="Generator Visualization", padding=10)
+        viz_frame.pack(side=tk.BOTTOM, fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+        # Create matplotlib figure for visualization
+        self.fig_gen = Figure(figsize=(12, 4))
+        self.ax_gen1 = self.fig_gen.add_subplot(1, 3, 1)
+        self.ax_gen2 = self.fig_gen.add_subplot(1, 3, 2)
+        self.ax_gen3 = self.fig_gen.add_subplot(1, 3, 3)
+
+        self.canvas_gen = FigureCanvasTkAgg(self.fig_gen, master=viz_frame)
+        self.canvas_gen.draw()
+        self.canvas_gen.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+
+    def calculate_generator(self):
+        """Calculate and display generator parameters"""
+        try:
+            # Get input values
+            power = self.gen_power_var.get()
+            voltage = self.gen_voltage_var.get()
+            speed = self.gen_speed_var.get()
+            poles = self.gen_poles_var.get()
+            diameter = self.gen_diameter_var.get()
+            length = self.gen_length_var.get()
+            slot_pitch = self.gen_slot_pitch_var.get()
+            flux = self.gen_flux_var.get()
+
+            # Calculate generator parameters
+            calculator = CompoundGeneratorCalculator(power, voltage, speed, poles,
+                                                    diameter, length, slot_pitch, flux)
+            results = calculator.results
+
+            # Display results
+            self.gen_results_text.delete(1.0, tk.END)
+
+            output = "=" * 75 + "\n"
+            output += "COMPOUND GENERATOR CALCULATION RESULTS\n"
+            output += "=" * 75 + "\n\n"
+
+            output += "INPUT PARAMETERS:\n"
+            output += "-" * 75 + "\n"
+            output += f"Power Rating:                  {power:>15.2f} kW\n"
+            output += f"Voltage:                       {voltage:>15.2f} V\n"
+            output += f"Speed:                         {speed:>15.2f} rpm\n"
+            output += f"Number of Poles:               {poles:>15d}\n"
+            output += f"Armature Diameter:             {diameter:>15.3f} m\n"
+            output += f"Armature Length:               {length:>15.3f} m\n"
+            output += f"Slot Pitch:                    {slot_pitch:>15.4f} m ({slot_pitch*100:.2f} cm)\n"
+            output += f"Flux per Pole:                 {flux:>15.4f} Wb\n\n"
+
+            output += "=" * 75 + "\n"
+            output += "ARMATURE WINDING DESIGN:\n"
+            output += "=" * 75 + "\n"
+            output += f"Generated EMF:                 {results['emf']:>15.2f} V\n"
+            output += f"Winding Type:                  {results['winding_type']:>15s}\n"
+            output += f"Number of Parallel Paths:      {results['parallel_paths']:>15d}\n\n"
+
+            output += "*** PRIMARY RESULTS ***\n"
+            output += f"Number of Conductors (Z):      {results['num_conductors']:>15d}\n"
+            output += f"Number of Slots:               {results['num_slots']:>15d}\n"
+            output += f"Conductors per Slot:           {results['conductors_per_slot']:>15.2f}\n"
+            output += f"Armature Resistance (Ra):      {results['armature_resistance']:>15.4f} Ω\n\n"
+
+            output += "=" * 75 + "\n"
+            output += "DETAILED CALCULATIONS:\n"
+            output += "=" * 75 + "\n"
+            output += f"Armature Current:              {results['armature_current']:>15.2f} A\n"
+            output += f"Current per Conductor:         {results['current_per_conductor']:>15.2f} A\n"
+            output += f"Current Density:               {results['current_density']:>15.2f} A/mm²\n"
+            output += f"Conductor Area:                {results['conductor_area_mm2']:>15.2f} mm²\n\n"
+
+            output += "GEOMETRIC PARAMETERS:\n"
+            output += "-" * 75 + "\n"
+            output += f"Pole Pitch:                    {results['pole_pitch']:>15.4f} m\n"
+            output += f"Armature Circumference:        {results['circumference']:>15.4f} m\n"
+            output += f"Mean Length of Turn:           {results['mean_length_turn']:>15.4f} m\n"
+            output += f"Total Conductor Length:        {results['total_conductor_length']:>15.2f} m\n\n"
+
+            output += "LOADING PARAMETERS:\n"
+            output += "-" * 75 + "\n"
+            output += f"Specific Electric Loading:     {results['specific_electric_loading']:>15.2f} A/m\n"
+            output += f"Average Flux Density:          {results['avg_flux_density']:>15.4f} T\n\n"
+
+            output += "=" * 75 + "\n"
+            output += "FORMULAS USED:\n"
+            output += "=" * 75 + "\n"
+            output += "1. EMF Equation: E = (φ × Z × N × P) / (60 × A)\n"
+            output += "2. Number of Slots = Circumference / Slot Pitch\n"
+            output += "3. Armature Current = Power / Voltage\n"
+            output += "4. Resistance = (ρ × Length) / Area\n"
+            output += "5. Specific Electric Loading = (I × Z) / Circumference\n\n"
+
+            self.gen_results_text.insert(1.0, output)
+
+            # Update visualizations
+            self.update_generator_plots(results)
+
+        except ValueError as e:
+            messagebox.showerror("Input Error", f"Please enter valid numeric values: {str(e)}")
+        except Exception as e:
+            messagebox.showerror("Error", f"An error occurred: {str(e)}")
+
+    def update_generator_plots(self, results):
+        """Update generator visualization plots"""
+        # Clear previous plots
+        self.ax_gen1.clear()
+        self.ax_gen2.clear()
+        self.ax_gen3.clear()
+
+        # Plot 1: Bar chart of key parameters
+        params = ['Conductors', 'Slots', 'Poles']
+        values = [results['num_conductors'], results['num_slots'], self.gen_poles_var.get()]
+        colors = ['#1f77b4', '#ff7f0e', '#2ca02c']
+        
+        bars = self.ax_gen1.bar(params, values, color=colors, alpha=0.7, edgecolor='black')
+        self.ax_gen1.set_ylabel('Count')
+        self.ax_gen1.set_title('Armature Configuration', fontweight='bold')
+        self.ax_gen1.grid(True, alpha=0.3, axis='y')
+        
+        # Add value labels on bars
+        for bar in bars:
+            height = bar.get_height()
+            self.ax_gen1.text(bar.get_x() + bar.get_width()/2., height,
+                            f'{int(height)}', ha='center', va='bottom', fontweight='bold')
+
+        # Plot 2: Current and resistance
+        self.ax_gen2.barh(['Armature\nCurrent (A)', 'Armature\nResistance (Ω)'],
+                         [results['armature_current'], results['armature_resistance']*100],
+                         color=['#d62728', '#9467bd'], alpha=0.7, edgecolor='black')
+        self.ax_gen2.set_xlabel('Value')
+        self.ax_gen2.set_title('Electrical Parameters', fontweight='bold')
+        self.ax_gen2.grid(True, alpha=0.3, axis='x')
+        
+        # Add value labels
+        for i, (val, label) in enumerate(zip([results['armature_current'], 
+                                               results['armature_resistance']],
+                                             ['A', 'Ω'])):
+            self.ax_gen2.text(val if label == 'A' else val*100, i,
+                            f'  {val:.2f} {label}', va='center', fontweight='bold')
+
+        # Plot 3: Pie chart of winding distribution
+        labels = ['Active\nConductors', 'End\nConnections']
+        active_length = results['total_conductor_length'] * (self.gen_length_var.get() / 
+                       (self.gen_length_var.get() + results['pole_pitch']))
+        end_length = results['total_conductor_length'] - active_length
+        sizes = [active_length, end_length]
+        colors_pie = ['#8c564b', '#e377c2']
+        
+        wedges, texts, autotexts = self.ax_gen3.pie(sizes, labels=labels, colors=colors_pie,
+                                                     autopct='%1.1f%%', startangle=90,
+                                                     textprops={'fontweight': 'bold'})
+        self.ax_gen3.set_title('Conductor Length Distribution', fontweight='bold')
+
+        self.fig_gen.tight_layout()
+        self.canvas_gen.draw()
+
+    def reset_generator_params(self):
+        """Reset generator parameters to default values"""
+        self.gen_power_var.set(500.0)
+        self.gen_voltage_var.set(440.0)
+        self.gen_speed_var.set(375.0)
+        self.gen_poles_var.set(8)
+        self.gen_diameter_var.set(1.1)
+        self.gen_length_var.set(0.3)
+        self.gen_slot_pitch_var.set(0.025)
+        self.gen_flux_var.set(0.0875)
 
     def create_tariff_tab(self):
         """Create tariff calculator tab"""
