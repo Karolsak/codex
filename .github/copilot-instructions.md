@@ -29,7 +29,7 @@ codex/
 
 ## Technology Stack
 
-- **Language**: Python 3.8+
+- **Language**: Python 3.9+
 - **GUI Framework**: Tkinter (Python standard library)
 - **Scientific Computing**: NumPy, Matplotlib
 - **ODE Solvers**: Custom implementations (Euler, RK45)
@@ -134,7 +134,7 @@ Note: Tests are currently non-GUI unit tests for core logic only.
 
 When adding dependencies:
 1. Update `requirements.txt` with version constraints
-2. Test compatibility with Python 3.8+
+2. Test compatibility with Python 3.9+
 3. Prefer standard library when possible to minimize dependencies
 4. Document the purpose of each new dependency
 
@@ -151,10 +151,12 @@ When working with electrical engineering calculations:
 
 ### Common Calculations
 
+Note: For AC calculations, voltage and current values should be RMS (root-mean-square) values.
+
 - **Power (DC or resistive AC)**: P = V × I
-- **Power (AC real/active)**: P = V × I × cos(φ) where φ is the phase angle
-- **Apparent Power (AC)**: S = V × I
-- **Reactive Power (AC)**: Q = V × I × sin(φ)
+- **Power (AC real/active)**: P = V_rms × I_rms × cos(φ) where φ is the phase angle
+- **Apparent Power (AC)**: S = V_rms × I_rms
+- **Reactive Power (AC)**: Q = V_rms × I_rms × sin(φ)
 - **Energy**: E = P × t
 - **Load Factor**: Average Demand / Maximum Demand
 - **Tariff**: Fixed charges + Running charges based on consumption
