@@ -29,7 +29,7 @@ codex/
 
 ## Technology Stack
 
-- **Language**: Python 3.x
+- **Language**: Python 3.8+
 - **GUI Framework**: Tkinter (Python standard library)
 - **Scientific Computing**: NumPy, Matplotlib
 - **ODE Solvers**: Custom implementations (Euler, RK45)
@@ -151,7 +151,10 @@ When working with electrical engineering calculations:
 
 ### Common Calculations
 
-- **Power**: P = V × I (for DC or resistive AC loads); P = V × I × cos(φ) for AC circuits where φ is the phase angle
+- **Power (DC or resistive AC)**: P = V × I
+- **Power (AC real/active)**: P = V × I × cos(φ) where φ is the phase angle
+- **Apparent Power (AC)**: S = V × I
+- **Reactive Power (AC)**: Q = V × I × sin(φ)
 - **Energy**: E = P × t
 - **Load Factor**: Average Demand / Maximum Demand
 - **Tariff**: Fixed charges + Running charges based on consumption
