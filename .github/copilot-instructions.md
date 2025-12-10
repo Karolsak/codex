@@ -86,7 +86,7 @@ The `requirements.txt` file contains:
 
 ### Platform-Specific Requirements
 - **Linux**: `sudo apt-get install python3-tk`
-- **macOS**: Tkinter usually included with Python installation from python.org, or `brew install python-tk@3.x` for Homebrew Python
+- **macOS**: Tkinter usually included with Python installation from python.org, or install via Homebrew: `brew install python-tk@3.11` (replace 3.11 with your Python version)
 - **Windows**: Tkinter usually included with Python installation
 
 ## Building and Testing
