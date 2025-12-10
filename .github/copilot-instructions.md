@@ -1,4 +1,4 @@
-# Copilot Instructions for Codex Repository
+# GitHub Copilot Instructions for Codex Repository
 
 ## Project Overview
 
@@ -77,12 +77,16 @@ codex/
 
 ### Required Packages
 ```bash
-pip install numpy>=1.20.0 matplotlib>=3.3.0
+pip install -r requirements.txt
 ```
+
+The `requirements.txt` file contains:
+- numpy>=1.20.0
+- matplotlib>=3.3.0
 
 ### Platform-Specific Requirements
 - **Linux**: `sudo apt-get install python3-tk`
-- **macOS**: `brew install python-tk`
+- **macOS**: Tkinter usually included with Python installation from python.org, or `brew install python-tk@3.x` for Homebrew Python
 - **Windows**: Tkinter usually included with Python installation
 
 ## Building and Testing
@@ -170,11 +174,11 @@ This repository deals with:
 2. For real-time GUI updates, consider update frequency (don't update too frequently)
 3. Profile code before optimizing to identify actual bottlenecks
 
-## Security Considerations
-- Validate all user inputs from GUI forms
-- Ensure numerical stability in calculations (avoid division by zero)
+## Error Handling and Validation
+- Validate all user inputs from GUI forms (check ranges, types, and reasonable values)
+- Ensure numerical stability in calculations (avoid division by zero, check for NaN/infinity)
 - Handle exceptions gracefully with user-friendly error messages
-- Don't expose sensitive configuration data
+- Validate physical parameter ranges (e.g., efficiency must be 0-100%, power must be positive)
 
 ## Git Practices
 - Write clear, descriptive commit messages
