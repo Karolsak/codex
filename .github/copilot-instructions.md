@@ -157,6 +157,7 @@ Note: For AC calculations, voltage and current values should be RMS (root-mean-s
 - **Power (AC real/active)**: P = V_rms × I_rms × cos(φ) where φ is the phase angle
 - **Apparent Power (AC)**: S = V_rms × I_rms
 - **Reactive Power (AC)**: Q = V_rms × I_rms × sin(φ)
+- **Power Triangle Relationship**: S² = P² + Q² (relating real, reactive, and apparent power)
 - **Energy**: E = P × t
 - **Load Factor**: Average Demand / Maximum Demand
 - **Tariff**: Fixed charges + Running charges based on consumption
