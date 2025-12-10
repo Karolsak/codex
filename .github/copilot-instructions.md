@@ -134,7 +134,7 @@ Note: Tests are currently non-GUI unit tests for core logic only.
 
 When adding dependencies:
 1. Update `requirements.txt` with version constraints
-2. Test compatibility with Python 3.7+
+2. Test compatibility with Python 3.8+
 3. Prefer standard library when possible to minimize dependencies
 4. Document the purpose of each new dependency
 
@@ -151,7 +151,7 @@ When working with electrical engineering calculations:
 
 ### Common Calculations
 
-- **Power**: P = V × I (for DC or AC power factor = 1)
+- **Power**: P = V × I (for DC or resistive AC loads); P = V × I × cos(φ) for AC circuits where φ is the phase angle
 - **Energy**: E = P × t
 - **Load Factor**: Average Demand / Maximum Demand
 - **Tariff**: Fixed charges + Running charges based on consumption
