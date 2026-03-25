@@ -1,0 +1,1346 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>3φ AC Voltage Controller — Induction Motor Analysis</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    body { font-family: 'Segoe UI', system-ui, sans-serif; background: #f0f4f8; }
+    .tab-btn { transition: all 0.2s; }
+    .tab-btn.active { background: #1e40af; color: #fff; border-bottom: 3px solid #f59e0b; }
+    .tab-btn:not(.active) { background: #dbeafe; color: #1e3a8a; }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+    input[type=range] { accent-color: #2563eb; width: 100%; }
+    .card { background: #fff; border-radius: 0.75rem; box-shadow: 0 2px 8px rgba(0,0,0,.08); }
+    canvas { max-width: 100%; }
+    pre { background: #1e293b; color: #e2e8f0; border-radius: .5rem; padding: 1rem;
+          overflow-x: auto; font-size: .8rem; line-height: 1.5; }
+    .result-row { display: flex; justify-content: space-between; padding: .35rem .5rem;
+                  border-bottom: 1px solid #e2e8f0; }
+    .result-row:last-child { border-bottom: none; }
+    .result-label { color: #475569; font-size: .85rem; }
+    .result-value { color: #1e40af; font-weight: 700; font-size: .9rem; }
+    .badge { display: inline-block; padding:.15rem .5rem; border-radius:9999px;
+             font-size:.75rem; font-weight:600; }
+    .badge-green  { background:#dcfce7; color:#166534; }
+    .badge-blue   { background:#dbeafe; color:#1e40af; }
+    .badge-amber  { background:#fef3c7; color:#92400e; }
+    .badge-red    { background:#fee2e2; color:#991b1b; }
+    ::-webkit-scrollbar { width:6px; height:6px; }
+    ::-webkit-scrollbar-track { background:#f1f5f9; }
+    ::-webkit-scrollbar-thumb { background:#94a3b8; border-radius:3px; }
+  </style>
+</head>
+<body class="min-h-screen p-2 md:p-4">
+
+<!-- ═══════════════════════ HEADER ═══════════════════════ -->
+<header class="card p-4 mb-4">
+  <div class="flex flex-col md:flex-row md:items-center gap-2">
+    <div>
+      <h1 class="text-xl md:text-2xl font-bold text-blue-900">
+        ⚡ 3φ Delta-Connected AC Voltage Controller
+      </h1>
+      <p class="text-sm text-slate-500">
+        Induction Motor Speed Control — Comprehensive Analysis &amp; Simulation
+      </p>
+    </div>
+    <div class="md:ml-auto flex flex-wrap gap-2 text-xs">
+      <span class="badge badge-blue">5 hp / 208 V / 60 Hz</span>
+      <span class="badge badge-green">PF = 0.85 lag</span>
+      <span class="badge badge-amber">η = 90 %</span>
+      <span class="badge badge-red">Δ-connected</span>
+    </div>
+  </div>
+</header>
+
+<!-- ═══════════════════════ TABS ═══════════════════════ -->
+<div class="card mb-4 overflow-x-auto">
+  <div class="flex gap-1 p-2 min-w-max">
+    <button class="tab-btn active px-3 py-1.5 rounded-md text-sm font-semibold" onclick="switchTab('overview',this)">① Overview</button>
+    <button class="tab-btn px-3 py-1.5 rounded-md text-sm font-semibold" onclick="switchTab('calc',this)">② Calculator</button>
+    <button class="tab-btn px-3 py-1.5 rounded-md text-sm font-semibold" onclick="switchTab('waveform',this)">③ Waveforms</button>
+    <button class="tab-btn px-3 py-1.5 rounded-md text-sm font-semibold" onclick="switchTab('simulation',this)">④ Simulation</button>
+    <button class="tab-btn px-3 py-1.5 rounded-md text-sm font-semibold" onclick="switchTab('fault',this)">⑤ Fault Current</button>
+    <button class="tab-btn px-3 py-1.5 rounded-md text-sm font-semibold" onclick="switchTab('protection',this)">⑥ Protection</button>
+    <button class="tab-btn px-3 py-1.5 rounded-md text-sm font-semibold" onclick="switchTab('speed',this)">⑦ Speed Ctrl</button>
+    <button class="tab-btn px-3 py-1.5 rounded-md text-sm font-semibold" onclick="switchTab('thermal',this)">⑧ Thermal/Econ</button>
+    <button class="tab-btn px-3 py-1.5 rounded-md text-sm font-semibold" onclick="switchTab('harmonics',this)">⑨ Harmonics</button>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════
+     TAB 1 — OVERVIEW
+═══════════════════════════════════════════════════════════════ -->
+<div id="tab-overview" class="tab-panel active">
+  <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
+    <!-- Circuit diagram -->
+    <div class="card p-4">
+      <h2 class="text-lg font-bold text-blue-900 mb-3">(a) Circuit Diagram</h2>
+      <canvas id="circuitCanvas" width="600" height="340" class="border rounded-lg bg-gray-50 w-full"></canvas>
+    </div>
+    <!-- Problem + Theory -->
+    <div class="card p-4 overflow-y-auto max-h-96 xl:max-h-none">
+      <h2 class="text-lg font-bold text-blue-900 mb-3">Problem Statement &amp; Theory</h2>
+      <div class="text-sm text-slate-700 space-y-3 leading-relaxed">
+        <p><strong class="text-blue-800">Given:</strong> A 3φ delta-connected AC voltage controller
+        controls the speed of a 3φ, <em>5 hp, 208 V, 60 Hz</em> induction motor.
+        At full-load: <strong>PF = 0.85 lagging</strong>, <strong>η = 90 %</strong>.</p>
+
+        <div class="bg-blue-50 rounded-lg p-3 border-l-4 border-blue-400">
+          <strong>(a) Circuit:</strong> Three anti-parallel thyristor pairs (SCR pairs) are
+          inserted in each of the three supply lines feeding the delta-connected motor.
+          Gate pulses displaced by 120° control the RMS voltage, hence motor speed.
+        </div>
+        <div class="bg-green-50 rounded-lg p-3 border-l-4 border-green-400">
+          <strong>(b) Input kVA:</strong><br/>
+          P<sub>out</sub> = 5 × 746 = 3 730 W<br/>
+          P<sub>in</sub>  = 3 730 / 0.90 = <strong>4 144 W</strong><br/>
+          <strong>S<sub>in</sub> = 4 144 / 0.85 ≈ 4 876 VA ≈ 4.876 kVA</strong>
+        </div>
+        <div class="bg-amber-50 rounded-lg p-3 border-l-4 border-amber-400">
+          <strong>(c) Firing Angle Range:</strong><br/>
+          φ = cos⁻¹(0.85) ≈ 31.8° → <strong>α<sub>min</sub> = 31.8°</strong><br/>
+          <strong>α<sub>max</sub> = 180°</strong> (zero output voltage)<br/>
+          Full-load range: <strong>31.8° ≤ α ≤ 180°</strong>
+        </div>
+        <div class="bg-red-50 rounded-lg p-3 border-l-4 border-red-400">
+          <strong>(d) Thyristor Ratings:</strong><br/>
+          I<sub>L</sub> = 4876 / (√3 × 208) ≈ <strong>13.54 A</strong><br/>
+          I<sub>ph,Δ</sub> = 13.54 / √3 ≈ <strong>7.82 A</strong><br/>
+          V<sub>THY</sub> (PIV) = √2 × 208 ≈ <strong>294 V</strong><br/>
+          I<sub>rms,thy</sub> = 7.82 / √2 ≈ <strong>5.53 A</strong>
+        </div>
+        <div class="bg-purple-50 rounded-lg p-3 border-l-4 border-purple-400">
+          <strong>(e) Waveform (PF = 0.80, α = 60°):</strong><br/>
+          φ = 36.87° &lt; α = 60° → thyristors fire <em>after</em> natural zero-crossing.<br/>
+          Each SCR conducts from 60° to β ≈ π + φ ≈ 216.9°.<br/>
+          Motor voltage = source during conduction, zero during blocking.<br/>
+          Current lags voltage by φ and decays exponentially when SCR off.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Key equations card -->
+  <div class="card p-4 mt-4">
+    <h2 class="text-lg font-bold text-blue-900 mb-3">Key Equations</h2>
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+      <div class="bg-slate-50 rounded-lg p-3">
+        <p class="font-semibold text-slate-700 mb-1">RMS Output Voltage (RL load, approx.)</p>
+        <code class="text-blue-700">V_out = V_s · √[ (1/π)(2(π−α) + sin2α) ]</code>
+        <p class="text-slate-500 mt-1 text-xs">Valid for resistive load; RL load uses actual β</p>
+      </div>
+      <div class="bg-slate-50 rounded-lg p-3">
+        <p class="font-semibold text-slate-700 mb-1">Phase Current (conduction interval)</p>
+        <code class="text-green-700">i(ωt) = (V_m/Z)[sin(ωt−φ) − sin(α−φ)·e^(−(ωt−α)/tanφ)]</code>
+      </div>
+      <div class="bg-slate-50 rounded-lg p-3">
+        <p class="font-semibold text-slate-700 mb-1">Induction Motor Torque</p>
+        <code class="text-red-700">T_e = 3V²R₂/s / [ω_s((R₁+R₂/s)²+(X₁+X₂)²)]</code>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════
+     TAB 2 — CALCULATOR
+═══════════════════════════════════════════════════════════════ -->
+<div id="tab-calc" class="tab-panel">
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+
+    <!-- Input Parameters -->
+    <div class="card p-4">
+      <h2 class="text-lg font-bold text-blue-900 mb-4">Input Parameters</h2>
+      <div class="space-y-4" id="calc-sliders"></div>
+      <button onclick="runCalc()" class="mt-4 w-full bg-blue-700 hover:bg-blue-800 text-white font-bold py-2 px-4 rounded-lg transition">
+        ⚡ Calculate
+      </button>
+    </div>
+
+    <!-- Results -->
+    <div class="card p-4 lg:col-span-2">
+      <h2 class="text-lg font-bold text-blue-900 mb-4">Calculated Results</h2>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+        <div>
+          <h3 class="font-semibold text-green-800 mb-2">(b) Input kVA &amp; Powers</h3>
+          <div class="bg-green-50 rounded-lg p-2" id="res-power"></div>
+        </div>
+        <div>
+          <h3 class="font-semibold text-amber-800 mb-2">(c) Firing Angle Range</h3>
+          <div class="bg-amber-50 rounded-lg p-2" id="res-angle"></div>
+        </div>
+        <div>
+          <h3 class="font-semibold text-red-800 mb-2">(d) Thyristor Ratings</h3>
+          <div class="bg-red-50 rounded-lg p-2" id="res-thy"></div>
+        </div>
+        <div>
+          <h3 class="font-semibold text-purple-800 mb-2">Additional Motor Data</h3>
+          <div class="bg-purple-50 rounded-lg p-2" id="res-extra"></div>
+        </div>
+      </div>
+
+      <!-- Phasor diagram -->
+      <div class="mt-4">
+        <h3 class="font-semibold text-blue-800 mb-2">Power Triangle &amp; Phasor Diagram</h3>
+        <canvas id="phasorCanvas" width="500" height="200" class="border rounded-lg bg-white w-full"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════
+     TAB 3 — WAVEFORMS
+═══════════════════════════════════════════════════════════════ -->
+<div id="tab-waveform" class="tab-panel">
+  <div class="card p-4 mb-4">
+    <h2 class="text-lg font-bold text-blue-900 mb-3">(e) Voltage &amp; Current Waveforms</h2>
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4" id="wave-sliders"></div>
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <canvas id="waveVoltChart" height="120"></canvas>
+      <canvas id="waveCurrChart" height="120"></canvas>
+    </div>
+    <div class="mt-3 bg-blue-50 rounded-lg p-3 text-sm text-blue-800" id="wave-info"></div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════
+     TAB 4 — SIMULATION
+═══════════════════════════════════════════════════════════════ -->
+<div id="tab-simulation" class="tab-panel">
+  <div class="card p-4 mb-4">
+    <div class="flex flex-wrap gap-3 items-center mb-4">
+      <h2 class="text-lg font-bold text-blue-900">Dynamic Motor Simulation</h2>
+      <div class="ml-auto flex gap-2">
+        <button id="simStart" onclick="simStart()" class="bg-green-600 hover:bg-green-700 text-white px-4 py-1.5 rounded-lg font-semibold text-sm">▶ Start</button>
+        <button id="simStop"  onclick="simStop()"  class="bg-red-600   hover:bg-red-700   text-white px-4 py-1.5 rounded-lg font-semibold text-sm">■ Stop</button>
+        <button id="simReset" onclick="simReset()" class="bg-slate-500  hover:bg-slate-600 text-white px-4 py-1.5 rounded-lg font-semibold text-sm">↺ Reset</button>
+      </div>
+    </div>
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4" id="sim-sliders"></div>
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+      <canvas id="simSpeedChart"  height="140"></canvas>
+      <canvas id="simTorqueChart" height="140"></canvas>
+      <canvas id="simCurrChart"   height="140"></canvas>
+    </div>
+    <div id="sim-status" class="mt-2 text-sm font-mono bg-slate-800 text-green-400 rounded px-3 py-1.5">
+      Status: Idle
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════
+     TAB 5 — FAULT CURRENT
+═══════════════════════════════════════════════════════════════ -->
+<div id="tab-fault" class="tab-panel">
+  <div class="card p-4">
+    <h2 class="text-lg font-bold text-blue-900 mb-3">3-Phase Symmetrical Fault Current Analysis</h2>
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4" id="fault-sliders"></div>
+    <button onclick="runFault()" class="mb-4 bg-red-700 hover:bg-red-800 text-white font-bold py-2 px-6 rounded-lg transition">
+      ⚡ Run Fault Analysis
+    </button>
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <canvas id="faultWaveChart" height="140"></canvas>
+      <canvas id="faultEnvChart"  height="140"></canvas>
+    </div>
+    <div id="fault-result" class="mt-3 bg-red-50 rounded-lg p-3 text-sm text-red-900 font-mono"></div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════
+     TAB 6 — PROTECTION
+═══════════════════════════════════════════════════════════════ -->
+<div id="tab-protection" class="tab-panel">
+  <div class="card p-4">
+    <h2 class="text-lg font-bold text-blue-900 mb-3">Protection Coordination — Time-Current Characteristics</h2>
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4" id="prot-sliders"></div>
+    <button onclick="plotProtection()" class="mb-4 bg-amber-600 hover:bg-amber-700 text-white font-bold py-2 px-6 rounded-lg transition">
+      📈 Plot TCC Curves
+    </button>
+    <canvas id="protChart" height="100"></canvas>
+    <div id="prot-info" class="mt-3 bg-amber-50 rounded-lg p-3 text-sm text-amber-900"></div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════
+     TAB 7 — SPEED CONTROLLER
+═══════════════════════════════════════════════════════════════ -->
+<div id="tab-speed" class="tab-panel">
+  <div class="card p-4">
+    <div class="flex flex-wrap gap-3 items-center mb-4">
+      <h2 class="text-lg font-bold text-blue-900">Speed Controller (PID &amp; Fuzzy)</h2>
+      <div class="ml-auto flex gap-2">
+        <label class="text-sm font-semibold mr-1">Mode:</label>
+        <select id="ctrlMode" class="border rounded px-2 py-1 text-sm">
+          <option value="PID">PID</option>
+          <option value="Fuzzy">Fuzzy</option>
+        </select>
+        <button onclick="ctrlStart()" class="bg-green-600 hover:bg-green-700 text-white px-4 py-1.5 rounded-lg font-semibold text-sm">▶ Run</button>
+        <button onclick="ctrlStop()"  class="bg-red-600   hover:bg-red-700   text-white px-4 py-1.5 rounded-lg font-semibold text-sm">■ Stop</button>
+        <button onclick="ctrlReset()" class="bg-slate-500  hover:bg-slate-600 text-white px-4 py-1.5 rounded-lg font-semibold text-sm">↺ Reset</button>
+      </div>
+    </div>
+    <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-4" id="ctrl-sliders"></div>
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+      <canvas id="ctrlSpeedChart" height="140"></canvas>
+      <canvas id="ctrlTorqChart"  height="140"></canvas>
+      <canvas id="ctrlAlphaChart" height="140"></canvas>
+    </div>
+    <div id="ctrl-status" class="mt-2 text-sm font-mono bg-slate-800 text-cyan-400 rounded px-3 py-1.5">
+      Status: Idle
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════
+     TAB 8 — THERMAL / ECONOMIC
+═══════════════════════════════════════════════════════════════ -->
+<div id="tab-thermal" class="tab-panel">
+  <div class="card p-4">
+    <h2 class="text-lg font-bold text-blue-900 mb-3">Thermal &amp; Economic Analysis</h2>
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4" id="therm-sliders"></div>
+    <button onclick="plotThermal()" class="mb-4 bg-orange-600 hover:bg-orange-700 text-white font-bold py-2 px-6 rounded-lg transition">
+      🌡 Calculate
+    </button>
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <canvas id="tempChart" height="140"></canvas>
+      <canvas id="econChart" height="140"></canvas>
+    </div>
+    <div id="therm-result" class="mt-3 bg-orange-50 rounded-lg p-3 text-sm text-orange-900 font-mono"></div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════
+     TAB 9 — HARMONICS
+═══════════════════════════════════════════════════════════════ -->
+<div id="tab-harmonics" class="tab-panel">
+  <div class="card p-4">
+    <h2 class="text-lg font-bold text-blue-900 mb-3">Harmonic Analysis &amp; Power Quality</h2>
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4" id="harm-sliders"></div>
+    <button onclick="runHarmonics()" class="mb-4 bg-purple-700 hover:bg-purple-800 text-white font-bold py-2 px-6 rounded-lg transition">
+      📊 Analyse
+    </button>
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <canvas id="harmVChart" height="140"></canvas>
+      <canvas id="harmIChart" height="140"></canvas>
+    </div>
+    <div id="harm-result" class="mt-3 bg-purple-50 rounded-lg p-3 text-sm text-purple-900 font-mono"></div>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════ JAVASCRIPT ═══════════════════════ -->
+<script>
+// ─────────────────────────── TAB SWITCHING ───────────────────────────
+function switchTab(id, btn) {
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab-' + id).classList.add('active');
+  btn.classList.add('active');
+}
+
+// ─────────────────────────── CONSTANTS ───────────────────────────────
+const HP2W   = 746;
+const SQRT2  = Math.sqrt(2);
+const SQRT3  = Math.sqrt(3);
+const PI     = Math.PI;
+const TWO_PI = 2 * PI;
+
+// ─────────────────────────── STATE ───────────────────────────────────
+const state = {
+  hp: 5, V_line: 208, freq: 60, pf: 0.85, eta: 0.90,
+  poles: 4, alpha: 31.8, pf_load: 0.85,
+  T_load: 15, alpha_sim: 40,
+  speed_ref: 1710, kp: 2.0, ki: 0.5, kd: 0.1, step_load: 20,
+  Z_src: 0.05,
+  Ip1: 15, tms1: 0.5, Ip2: 8, tms2: 0.2,
+  R_th: 1.5, hours: 8000, e_cost: 0.10,
+  harm_alpha: 60, harm_pf: 0.80,
+};
+
+// ─────────────────────────── SLIDER FACTORY ──────────────────────────
+function makeSliders(containerId, defs) {
+  const c = document.getElementById(containerId);
+  c.innerHTML = '';
+  defs.forEach(([key, label, min, max, step, fmt]) => {
+    const id = 'sl_' + containerId + '_' + key;
+    const div = document.createElement('div');
+    div.className = 'space-y-1';
+    div.innerHTML = `
+      <label class="text-xs font-semibold text-slate-600 block">${label}</label>
+      <input type="range" id="${id}" min="${min}" max="${max}" step="${step}"
+             value="${state[key]}" class="h-2 rounded" />
+      <span id="${id}_val" class="text-xs font-mono text-blue-700">${fmt(state[key])}</span>`;
+    c.appendChild(div);
+    document.getElementById(id).addEventListener('input', function () {
+      state[key] = parseFloat(this.value);
+      document.getElementById(id + '_val').textContent = fmt(state[key]);
+    });
+  });
+}
+
+const fmtNum  = d => n => n.toFixed(d);
+const fmtDeg  = n => n.toFixed(1) + '°';
+const fmtPct  = n => (n * 100).toFixed(0) + '%';
+const fmtCurr = n => n.toFixed(1) + ' A';
+
+// ─────────────────────────── MOTOR PARAMS CALCULATION ────────────────
+function calcMotorParams(hp, V, f, pf, eta, poles) {
+  const P_out   = hp * HP2W;
+  const P_in    = P_out / eta;
+  const S_in    = P_in  / pf;
+  const Q_in    = Math.sqrt(Math.max(0, S_in**2 - P_in**2));
+  const phi     = Math.acos(Math.min(pf, 1));
+  const phi_deg = phi * 180 / PI;
+  const I_line  = S_in / (SQRT3 * V);
+  const I_phase = I_line / SQRT3;
+  const Vm      = SQRT2 * V;
+  const V_thy   = Vm;
+  const I_thy_pk = SQRT2 * I_phase;
+  const I_thy_rm = I_phase / SQRT2;
+  const I_thy_av = I_thy_pk / PI;
+  const n_sync  = 120 * f / poles;
+  const w_sync  = TWO_PI * n_sync / 60;
+  const T_fl    = P_out / (w_sync * 0.95);
+  return { P_out, P_in, S_in, Q_in, phi, phi_deg, I_line, I_phase,
+           Vm, V_thy, I_thy_pk, I_thy_rm, I_thy_av,
+           alpha_min: phi_deg, alpha_max: 180, n_sync, w_sync, T_fl };
+}
+
+// ─────────────────────────── WAVEFORM GENERATION ─────────────────────
+function genWaveform(V_line, freq, alpha_deg, pf_load, cycles) {
+  cycles = cycles || 3;
+  const alpha = alpha_deg * PI / 180;
+  const phi   = Math.acos(Math.min(Math.max(pf_load, 0.001), 1));
+  const omega = TWO_PI * freq;
+  const Vm    = SQRT2 * V_line;
+  const N     = 2000;
+  const T     = cycles / freq;
+  const dt    = T / N;
+
+  const t = [], v_s = [], v_out = [], i_out = [];
+  for (let n = 0; n < N; n++) {
+    const ti = n * dt;
+    const wt = omega * ti;
+    t.push(ti * 1000);   // ms
+    v_s.push(Vm * Math.sin(wt));
+    v_out.push(0);
+    i_out.push(0);
+  }
+
+  for (let k = 0; k < cycles * 2; k++) {
+    const fire = k * PI + alpha;
+    const ext  = k * PI + PI + phi;
+    const sign = (k % 2 === 0) ? 1 : -1;
+    for (let n = 0; n < N; n++) {
+      const wt = omega * n * dt;
+      if (wt >= fire && wt < ext) {
+        v_out[n] = Vm * Math.sin(wt);
+        const theta = wt - fire;
+        const tanphi = Math.tan(phi + 1e-9);
+        const raw = sign * (Vm) * (
+          Math.sin(wt - phi) -
+          Math.sin(fire - phi) * Math.exp(-theta / tanphi)
+        );
+        i_out[n] = isFinite(raw) ? raw : 0;
+      }
+    }
+  }
+  return { t, v_s, v_out, i_out };
+}
+
+// ─────────────────────────── CIRCUIT DIAGRAM ─────────────────────────
+function drawCircuit() {
+  const canvas = document.getElementById('circuitCanvas');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = '#f8fafc';
+  ctx.fillRect(0, 0, W, H);
+
+  const phases = [
+    { y: H * 0.2, color: '#dc2626', label: 'Phase A' },
+    { y: H * 0.5, color: '#16a34a', label: 'Phase B' },
+    { y: H * 0.8, color: '#2563eb', label: 'Phase C' },
+  ];
+
+  // Supply lines
+  phases.forEach(ph => {
+    ctx.strokeStyle = ph.color; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(30, ph.y); ctx.lineTo(120, ph.y); ctx.stroke();
+    ctx.fillStyle = ph.color; ctx.font = 'bold 12px sans-serif';
+    ctx.textAlign = 'right';
+    ctx.fillText(ph.label, 26, ph.y + 4);
+  });
+
+  // Thyristor pairs
+  phases.forEach(ph => {
+    drawThyristorPair(ctx, 120, ph.y, ph.color);
+    ctx.strokeStyle = ph.color; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(190, ph.y); ctx.lineTo(280, ph.y); ctx.stroke();
+  });
+
+  // Delta box
+  ctx.strokeStyle = '#374151'; ctx.lineWidth = 2.5;
+  ctx.setLineDash([8, 4]);
+  ctx.strokeRect(280, H * 0.1, 120, H * 0.8);
+  ctx.setLineDash([]);
+  ctx.fillStyle = '#374151'; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'center';
+  ctx.fillText('Δ AC Voltage', 340, H * 0.1 - 6);
+  ctx.fillText('Controller', 340, H * 0.1 + 8);
+
+  // Labels inside delta
+  ctx.font = '10px sans-serif'; ctx.fillStyle = '#555';
+  ctx.fillText('T_A', 340, phases[0].y + 4);
+  ctx.fillText('T_B', 340, phases[1].y + 4);
+  ctx.fillText('T_C', 340, phases[2].y + 4);
+
+  // Connect delta to motor
+  phases.forEach(ph => {
+    ctx.strokeStyle = ph.color; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(400, ph.y); ctx.lineTo(440, H * 0.5); ctx.stroke();
+  });
+
+  // Motor block
+  ctx.fillStyle = '#dbeafe'; ctx.strokeStyle = '#1d4ed8'; ctx.lineWidth = 2.5;
+  const mx = 440, my = H*0.2, mw = 130, mh = H*0.6;
+  roundRect(ctx, mx, my, mw, mh, 10); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = '#1d4ed8'; ctx.font = 'bold 15px sans-serif'; ctx.textAlign = 'center';
+  ctx.fillText('3φ I.M.', mx + mw/2, my + mh*0.35);
+  ctx.font = '11px sans-serif'; ctx.fillStyle = '#1e40af';
+  ctx.fillText('5 hp / 208 V', mx + mw/2, my + mh*0.52);
+  ctx.fillText('60 Hz / Δ-conn', mx + mw/2, my + mh*0.65);
+  ctx.fillText('PF=0.85  η=90%', mx + mw/2, my + mh*0.78);
+
+  // Gate arrows
+  phases.forEach((ph, i) => {
+    ctx.strokeStyle = '#ea580c'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(155, ph.y - 30); ctx.lineTo(155, ph.y - 5); ctx.stroke();
+    arrowHead(ctx, 155, ph.y - 5, '#ea580c');
+    ctx.fillStyle = '#ea580c'; ctx.font = '9px sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText('Gate', 155, ph.y - 35);
+  });
+}
+
+function drawThyristorPair(ctx, x, y, color) {
+  // Forward thyristor
+  ctx.fillStyle = color + 'cc'; ctx.strokeStyle = color; ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(x, y - 12); ctx.lineTo(x + 30, y); ctx.lineTo(x, y + 12);
+  ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x + 30, y - 12); ctx.lineTo(x + 30, y + 12); ctx.stroke();
+  // Reverse thyristor (smaller)
+  ctx.fillStyle = color + '66';
+  ctx.beginPath();
+  ctx.moveTo(x + 30, y - 7); ctx.lineTo(x + 60, y); ctx.lineTo(x + 30, y + 7);
+  ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x + 60, y - 7); ctx.lineTo(x + 60, y + 7); ctx.stroke();
+  // Connect
+  ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + 60, y); ctx.stroke();
+}
+
+function arrowHead(ctx, x, y, color) {
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(x, y); ctx.lineTo(x - 4, y - 8); ctx.lineTo(x + 4, y - 8);
+  ctx.closePath(); ctx.fill();
+}
+
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y); ctx.arcTo(x+w, y, x+w, y+r, r);
+  ctx.lineTo(x + w, y+h - r); ctx.arcTo(x+w, y+h, x+w-r, y+h, r);
+  ctx.lineTo(x + r, y+h); ctx.arcTo(x, y+h, x, y+h-r, r);
+  ctx.lineTo(x, y+r); ctx.arcTo(x, y, x+r, y, r);
+  ctx.closePath();
+}
+
+// ─────────────────────────── PHASOR DIAGRAM ──────────────────────────
+function drawPhasor() {
+  const canvas = document.getElementById('phasorCanvas');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = '#f8fafc'; ctx.fillRect(0, 0, W, H);
+
+  const r = calcMotorParams(state.hp, state.V_line, state.freq, state.pf, state.eta, state.poles);
+  const scale = (W * 0.35) / (r.S_in / 1000);
+
+  const ox = W * 0.15, oy = H * 0.75;
+
+  // P arrow (horizontal)
+  const px = r.P_in / 1000 * scale;
+  drawArrow(ctx, ox, oy, ox + px, oy, '#16a34a', `P = ${(r.P_in/1000).toFixed(2)} kW`);
+
+  // Q arrow (vertical up)
+  const qy = r.Q_in / 1000 * scale;
+  drawArrow(ctx, ox + px, oy, ox + px, oy - qy, '#dc2626', `Q = ${(r.Q_in/1000).toFixed(2)} kVAR`);
+
+  // S arrow (hypotenuse)
+  drawArrow(ctx, ox, oy, ox + px, oy - qy, '#2563eb', `S = ${(r.S_in/1000).toFixed(3)} kVA`, true);
+
+  // Angle label
+  ctx.strokeStyle = '#9333ea'; ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.arc(ox, oy, 30, -Math.atan2(qy, px), 0); ctx.stroke();
+  ctx.fillStyle = '#9333ea'; ctx.font = '11px sans-serif';
+  ctx.fillText(`φ = ${r.phi_deg.toFixed(1)}°`, ox + 35, oy - 8);
+
+  ctx.font = 'bold 12px sans-serif'; ctx.fillStyle = '#1e293b';
+  ctx.textAlign = 'center';
+  ctx.fillText('Power Triangle (Input Side)', W/2, H * 0.08);
+}
+
+function drawArrow(ctx, x1, y1, x2, y2, color, label, dashed) {
+  ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = 2.5;
+  if (dashed) ctx.setLineDash([6, 3]); else ctx.setLineDash([]);
+  ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+  ctx.setLineDash([]);
+  // Arrowhead
+  const angle = Math.atan2(y2-y1, x2-x1);
+  ctx.beginPath();
+  ctx.moveTo(x2, y2);
+  ctx.lineTo(x2 - 10*Math.cos(angle-0.4), y2 - 10*Math.sin(angle-0.4));
+  ctx.lineTo(x2 - 10*Math.cos(angle+0.4), y2 - 10*Math.sin(angle+0.4));
+  ctx.closePath(); ctx.fill();
+  // Label
+  ctx.font = '11px sans-serif'; ctx.fillStyle = color;
+  ctx.textAlign = 'center';
+  const mx = (x1+x2)/2, my = (y1+y2)/2;
+  ctx.fillText(label, mx + (y2-y1 !== 0 ? 50 : 0), my + (x2-x1 !== 0 ? -8 : 0));
+}
+
+// ─────────────────────────── CALCULATOR TAB ──────────────────────────
+function rRow(label, value) {
+  return `<div class="result-row"><span class="result-label">${label}</span><span class="result-value">${value}</span></div>`;
+}
+
+function runCalc() {
+  const r = calcMotorParams(state.hp, state.V_line, state.freq, state.pf, state.eta, state.poles);
+
+  document.getElementById('res-power').innerHTML =
+    rRow('P_out', `${r.P_out.toFixed(0)} W`) +
+    rRow('P_in',  `${r.P_in.toFixed(0)} W`) +
+    rRow('Q_in',  `${r.Q_in.toFixed(0)} VAR`) +
+    rRow('S_in',  `${r.S_in.toFixed(0)} VA = ${(r.S_in/1000).toFixed(3)} kVA`);
+
+  document.getElementById('res-angle').innerHTML =
+    rRow('φ = cos⁻¹(PF)', `${r.phi_deg.toFixed(2)}°`) +
+    rRow('α_min', `${r.alpha_min.toFixed(2)}°`) +
+    rRow('α_max', `${r.alpha_max.toFixed(1)}°`) +
+    rRow('Range', `${r.alpha_min.toFixed(1)}° → 180°`);
+
+  document.getElementById('res-thy').innerHTML =
+    rRow('I_line',  `${r.I_line.toFixed(3)} A`) +
+    rRow('I_phase(Δ)', `${r.I_phase.toFixed(3)} A`) +
+    rRow('V_THY (PIV)', `${r.V_thy.toFixed(1)} V`) +
+    rRow('I_thy_rms', `${r.I_thy_rm.toFixed(3)} A`) +
+    rRow('I_thy_peak', `${r.I_thy_pk.toFixed(3)} A`) +
+    rRow('Recommended V_T', `≥ 600 V`);
+
+  document.getElementById('res-extra').innerHTML =
+    rRow('n_sync', `${r.n_sync.toFixed(0)} RPM`) +
+    rRow('T_full-load', `${r.T_fl.toFixed(2)} N·m`) +
+    rRow('PF angle φ', `${r.phi_deg.toFixed(2)}°`) +
+    rRow('V_peak', `${r.Vm.toFixed(1)} V`);
+
+  drawPhasor();
+}
+
+// ─────────────────────────── CHART HELPERS ───────────────────────────
+const charts = {};
+
+function getOrCreateChart(id, type, data, options) {
+  if (charts[id]) { charts[id].destroy(); }
+  const ctx = document.getElementById(id).getContext('2d');
+  charts[id] = new Chart(ctx, { type, data, options });
+  return charts[id];
+}
+
+function lineDefaults(title, xLabel, yLabel) {
+  return {
+    responsive: true,
+    animation: false,
+    plugins: {
+      legend: { display: true, position: 'top', labels: { font: { size: 10 } } },
+      title:  { display: true, text: title, font: { size: 11, weight: 'bold' } },
+    },
+    scales: {
+      x: { title: { display: true, text: xLabel, font: { size: 10 } },
+           ticks: { maxTicksLimit: 10, font: { size: 9 } } },
+      y: { title: { display: true, text: yLabel, font: { size: 10 } },
+           ticks: { font: { size: 9 } } },
+    },
+  };
+}
+
+// ─────────────────────────── WAVEFORM TAB ────────────────────────────
+let waveVoltChart, waveCurrChart;
+
+function initWaveSliders() {
+  makeSliders('wave-sliders', [
+    ['alpha',   'Firing Angle α (°)', 0, 175, 1, fmtDeg],
+    ['pf_load', 'Load PF',           0.5, 1, 0.01, fmtNum(3)],
+    ['V_line',  'V_line (V)',        100, 600, 5, fmtNum(0)],
+    ['freq',    'Freq (Hz)',          50, 60, 5, fmtNum(0)],
+  ]);
+  // auto-update on any slider change
+  ['alpha','pf_load','V_line','freq'].forEach(k => {
+    const id = 'sl_wave-sliders_' + k;
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('input', plotWaveform);
+  });
+}
+
+function plotWaveform() {
+  const { t, v_s, v_out, i_out } = genWaveform(
+    state.V_line, state.freq, state.alpha, state.pf_load, 3);
+
+  // Downsample for chart performance
+  const step = Math.ceil(t.length / 600);
+  const td = t.filter((_, i) => i % step === 0);
+  const vsd = v_s.filter((_, i) => i % step === 0);
+  const vod = v_out.filter((_, i) => i % step === 0);
+  const iod = i_out.filter((_, i) => i % step === 0);
+
+  getOrCreateChart('waveVoltChart', 'line', {
+    labels: td.map(v => v.toFixed(1)),
+    datasets: [
+      { label: 'Source v_s(t)', data: vsd, borderColor: '#2563eb',
+        borderWidth: 1.5, pointRadius: 0, fill: false },
+      { label: 'Output v_out(t)', data: vod, borderColor: '#dc2626',
+        borderWidth: 2, pointRadius: 0, fill: false },
+    ],
+  }, lineDefaults(`Voltage Waveforms  α = ${state.alpha.toFixed(1)}°`, 'Time (ms)', 'Voltage (V)'));
+
+  getOrCreateChart('waveCurrChart', 'line', {
+    labels: td.map(v => v.toFixed(1)),
+    datasets: [
+      { label: 'Phase current i(t)', data: iod, borderColor: '#16a34a',
+        borderWidth: 2, pointRadius: 0, fill: { target: 'origin', above: '#bbf7d044', below: '#fca5a544' } },
+    ],
+  }, lineDefaults('Current Waveform (normalised)', 'Time (ms)', 'Current (pu)'));
+
+  const r = calcMotorParams(state.hp, state.V_line, state.freq, state.pf, state.eta, state.poles);
+  const phi_load = Math.acos(Math.min(state.pf_load, 1)) * 180 / PI;
+  document.getElementById('wave-info').innerHTML =
+    `<strong>α = ${state.alpha.toFixed(1)}° | φ_load = ${phi_load.toFixed(1)}° | ` +
+    (state.alpha > phi_load
+      ? `Partial conduction (α > φ): thyristors fire <em>after</em> natural zero-crossing. ` +
+        `Motor current shows inductive lag and exponential decay during blocking intervals.`
+      : `Full conduction possible (α ≤ φ): thyristors can conduct for full half-cycle.`) +
+    `</strong><br/>RMS output voltage ≈ ${
+      (state.V_line * Math.sqrt(Math.max(0, (1/PI)*(2*(PI - state.alpha*PI/180) +
+       Math.sin(2*state.alpha*PI/180))))).toFixed(1)
+    } V`;
+}
+
+// ─────────────────────────── SIMULATION TAB ──────────────────────────
+let simTimer = null;
+const simState = {
+  running: false, t: 0, wr: 0, dt: 0.05,
+  th: { t: [], rpm: [], Te: [], I: [] }
+};
+// Motor params
+const M = { R1:0.641, R2:0.332, X1:1.106, X2:0.464, J:0.05, Bm:0.005 };
+
+function wSync() {
+  return TWO_PI * state.freq * 2 / state.poles;
+}
+
+function motorTorque(V, s) {
+  s = Math.max(s, 0.001);
+  const Z = Math.sqrt((M.R1 + M.R2/s)**2 + (M.X1 + M.X2)**2);
+  const I2 = V / Z;
+  const ws = wSync();
+  return 3 * I2**2 * M.R2 / (s * Math.max(ws, 0.001));
+}
+
+function vEffective(V_nom, alpha_deg) {
+  const a = alpha_deg * PI / 180;
+  const f = Math.sqrt(Math.max(0, (1/PI)*(2*(PI - a) + Math.sin(2*a))));
+  return V_nom * f;
+}
+
+function simStep() {
+  const ws  = wSync();
+  const V   = vEffective(state.V_line, state.alpha_sim);
+  const s   = Math.max(0.001, Math.min(1, (ws - simState.wr) / Math.max(ws, 0.001)));
+  const Te  = motorTorque(V, s);
+  const Tm  = state.T_load + M.Bm * simState.wr;
+  const dw  = (Te - Tm) / M.J;
+
+  simState.wr = Math.max(0, Math.min(simState.wr + dw * simState.dt, ws * 1.05));
+  simState.t  += simState.dt;
+
+  const R2s = M.R2 / s;
+  const I   = V / Math.sqrt((M.R1 + R2s)**2 + (M.X1 + M.X2)**2);
+  const rpm = simState.wr * 60 / TWO_PI;
+
+  simState.th.t.push(+simState.t.toFixed(3));
+  simState.th.rpm.push(+rpm.toFixed(1));
+  simState.th.Te.push(+Te.toFixed(3));
+  simState.th.I.push(+I.toFixed(3));
+
+  // Keep last 10 s
+  const maxPts = Math.ceil(10 / simState.dt);
+  ['t','rpm','Te','I'].forEach(k => {
+    if (simState.th[k].length > maxPts) simState.th[k].shift();
+  });
+}
+
+function simUpdatePlots() {
+  const h   = simState.th;
+  const rpm = h.rpm[h.rpm.length-1] || 0;
+  const Te  = h.Te[h.Te.length-1]   || 0;
+  const ws_rpm = wSync() * 60 / TWO_PI;
+
+  getOrCreateChart('simSpeedChart', 'line', {
+    labels: h.t,
+    datasets: [
+      { label: 'Speed (RPM)', data: h.rpm, borderColor:'#2563eb', borderWidth:1.5, pointRadius:0 },
+      { label: `Sync = ${ws_rpm.toFixed(0)} RPM`, data: Array(h.t.length).fill(ws_rpm),
+        borderColor:'#94a3b8', borderWidth:1, borderDash:[5,3], pointRadius:0 },
+    ],
+  }, lineDefaults('Motor Speed', 'Time (s)', 'RPM'));
+
+  getOrCreateChart('simTorqueChart', 'line', {
+    labels: h.t,
+    datasets: [{ label: 'Torque (N·m)', data: h.Te, borderColor:'#dc2626', borderWidth:1.5, pointRadius:0 }],
+  }, lineDefaults('Electromagnetic Torque', 'Time (s)', 'N·m'));
+
+  getOrCreateChart('simCurrChart', 'line', {
+    labels: h.t,
+    datasets: [{ label: 'Current (A)', data: h.I, borderColor:'#16a34a', borderWidth:1.5, pointRadius:0 }],
+  }, lineDefaults('Stator Current', 'Time (s)', 'A'));
+
+  document.getElementById('sim-status').textContent =
+    `Running | t = ${simState.t.toFixed(1)} s | Speed = ${rpm.toFixed(0)} RPM | Torque = ${Te.toFixed(2)} N·m | α = ${state.alpha_sim.toFixed(1)}°`;
+}
+
+function simStart() {
+  if (simState.running) return;
+  simState.running = true;
+  function tick() {
+    if (!simState.running) return;
+    for (let i = 0; i < 5; i++) simStep();
+    simUpdatePlots();
+    simTimer = setTimeout(tick, 100);
+  }
+  tick();
+}
+function simStop()  { simState.running = false; clearTimeout(simTimer);
+  document.getElementById('sim-status').textContent = 'Status: Stopped'; }
+function simReset() {
+  simStop();
+  simState.t = 0; simState.wr = 0;
+  simState.th = { t:[], rpm:[], Te:[], I:[] };
+  ['simSpeedChart','simTorqueChart','simCurrChart'].forEach(id => {
+    if (charts[id]) { charts[id].destroy(); delete charts[id]; }
+  });
+  document.getElementById('sim-status').textContent = 'Status: Reset';
+}
+
+function initSimSliders() {
+  makeSliders('sim-sliders', [
+    ['alpha_sim', 'Firing Angle α (°)', 20, 175, 1, fmtDeg],
+    ['T_load',    'Load Torque (N·m)',   0, 50, 0.5, fmtNum(1)],
+    ['V_line',    'V_line (V)',        100, 600, 5, fmtNum(0)],
+    ['freq',      'Freq (Hz)',          50, 60, 5, fmtNum(0)],
+  ]);
+}
+
+// ─────────────────────────── FAULT CURRENT ───────────────────────────
+function initFaultSliders() {
+  makeSliders('fault-sliders', [
+    ['Z_src', 'Source Z (pu)', 0.01, 0.5, 0.005, fmtNum(3)],
+    ['hp',    'Motor hp',        1,  20, 0.5, fmtNum(1)],
+    ['V_line','V_line (V)',    100, 600, 5, fmtNum(0)],
+  ]);
+}
+
+function runFault() {
+  const V     = state.V_line;
+  const f     = state.freq;
+  const Zpu   = state.Z_src;
+  const S_kva = state.hp * HP2W / 1000;
+  const V_base = V / SQRT3;
+  const Z_base = V*V / (S_kva * 1000);
+  const Z_ohm  = Zpu * Z_base;
+  const I_rms  = V_base / Math.max(Z_ohm, 1e-9);
+  const tau    = 1 / (TWO_PI * f * 0.1);
+  const N = 500;
+  const T = 0.2;
+  const dt = T / N;
+  const t = [], ia = [], ib = [], ic = [];
+
+  for (let n = 0; n < N; n++) {
+    const ti = n * dt;
+    t.push(+(ti*1000).toFixed(2));
+    const a = SQRT2 * I_rms;
+    ia.push(+(a*(Math.sin(TWO_PI*f*ti - PI/2) + Math.sin(PI/2)*Math.exp(-ti/tau))).toFixed(2));
+    ib.push(+(a*(Math.sin(TWO_PI*f*ti - PI/2 - TWO_PI/3) + Math.sin(PI/2+TWO_PI/3)*Math.exp(-ti/tau))).toFixed(2));
+    ic.push(+(a*(Math.sin(TWO_PI*f*ti - PI/2 + TWO_PI/3) + Math.sin(PI/2-TWO_PI/3)*Math.exp(-ti/tau))).toFixed(2));
+  }
+
+  const step = Math.ceil(N / 300);
+  const td = t.filter((_,i) => i%step===0);
+  getOrCreateChart('faultWaveChart', 'line', {
+    labels: td,
+    datasets: [
+      { label:'Phase A', data: ia.filter((_,i)=>i%step===0), borderColor:'#dc2626', borderWidth:1.5, pointRadius:0 },
+      { label:'Phase B', data: ib.filter((_,i)=>i%step===0), borderColor:'#16a34a', borderWidth:1.5, pointRadius:0 },
+      { label:'Phase C', data: ic.filter((_,i)=>i%step===0), borderColor:'#2563eb', borderWidth:1.5, pointRadius:0 },
+    ],
+  }, lineDefaults('3-Phase Fault Currents', 'Time (ms)', 'Current (A)'));
+
+  // Envelope
+  const t2 = [], env = [], ac_pk = [];
+  for (let n = 0; n < 200; n++) {
+    const ti = n * T / 200;
+    t2.push(+(ti*1000).toFixed(2));
+    env.push(+(SQRT2*I_rms*(1+Math.exp(-ti/tau))).toFixed(2));
+    ac_pk.push(+(SQRT2*I_rms).toFixed(2));
+  }
+  getOrCreateChart('faultEnvChart', 'line', {
+    labels: t2,
+    datasets: [
+      { label:`Peak envelope`, data: env, borderColor:'#dc2626', borderWidth:2, borderDash:[6,3], pointRadius:0 },
+      { label:`AC peak = ${(SQRT2*I_rms).toFixed(0)} A`, data: ac_pk, borderColor:'#2563eb', borderWidth:1.5, borderDash:[4,4], pointRadius:0 },
+    ],
+  }, lineDefaults('Fault Current Envelope', 'Time (ms)', 'Magnitude (A)'));
+
+  const I_peak = SQRT2 * I_rms * (1 + Math.exp(0));
+  document.getElementById('fault-result').innerHTML =
+    `I_sc_rms = ${I_rms.toFixed(1)} A  |  I_sc_peak ≈ ${I_peak.toFixed(1)} A  |  ` +
+    `Z_source = ${Zpu.toFixed(3)} pu = ${Z_ohm.toFixed(4)} Ω  |  ` +
+    `Asymmetry factor ≈ ${(I_peak / (SQRT2*I_rms)).toFixed(2)}  |  ` +
+    `S_base = ${S_kva.toFixed(2)} kVA`;
+}
+
+// ─────────────────────────── PROTECTION ──────────────────────────────
+function initProtSliders() {
+  makeSliders('prot-sliders', [
+    ['Ip1',  'Relay 1 Pickup (A)',  2, 50, 0.5, fmtNum(1)],
+    ['tms1', 'Relay 1 TMS',       0.05, 2, 0.05, fmtNum(2)],
+    ['Ip2',  'Relay 2 Pickup (A)',  2, 30, 0.5, fmtNum(1)],
+    ['tms2', 'Relay 2 TMS',       0.05, 2, 0.05, fmtNum(2)],
+  ]);
+  ['Ip1','tms1','Ip2','tms2'].forEach(k => {
+    const el = document.getElementById('sl_prot-sliders_' + k);
+    if (el) el.addEventListener('input', plotProtection);
+  });
+}
+
+function tccCurve(I_arr, Ip, TMS, type) {
+  return I_arr.map(I => {
+    const r = Math.max(I / Ip, 1.001);
+    let t;
+    if (type === 'SI') t = TMS * 0.14 / (Math.pow(r, 0.02) - 1);
+    else if (type === 'VI') t = TMS * 13.5 / (r - 1);
+    else t = TMS * 80 / (r*r - 1);
+    return Math.min(Math.max(t, 0.01), 100);
+  });
+}
+
+function plotProtection() {
+  const Ip1 = state.Ip1, tms1 = state.tms1;
+  const Ip2 = state.Ip2, tms2 = state.tms2;
+  const I_min = Math.max(Ip1, Ip2) * 1.05;
+  const I_max = Math.max(Ip1, Ip2) * 25;
+
+  const N = 100;
+  const I_arr = [];
+  for (let i = 0; i < N; i++) {
+    I_arr.push(I_min * Math.pow(I_max / I_min, i / (N-1)));
+  }
+
+  const r = calcMotorParams(state.hp, state.V_line, state.freq, state.pf, state.eta, state.poles);
+  const I_start = 6 * r.I_line;
+
+  getOrCreateChart('protChart', 'line', {
+    labels: I_arr.map(v => v.toFixed(1)),
+    datasets: [
+      { label:`R1 SI (Ip=${Ip1}A,TMS=${tms1})`, data: tccCurve(I_arr,Ip1,tms1,'SI'),
+        borderColor:'#dc2626', borderWidth:2.5, pointRadius:0 },
+      { label:`R1 VI`, data: tccCurve(I_arr,Ip1,tms1,'VI'),
+        borderColor:'#f97316', borderWidth:1.5, borderDash:[5,3], pointRadius:0 },
+      { label:`R1 EI`, data: tccCurve(I_arr,Ip1,tms1,'EI'),
+        borderColor:'#ea580c', borderWidth:1.5, borderDash:[3,5], pointRadius:0 },
+      { label:`R2 SI (Ip=${Ip2}A,TMS=${tms2})`, data: tccCurve(I_arr,Ip2,tms2,'SI'),
+        borderColor:'#2563eb', borderWidth:2.5, pointRadius:0 },
+    ],
+  }, {
+    responsive: true, animation: false,
+    plugins: {
+      legend: { position:'top', labels:{font:{size:10}} },
+      title: { display:true, text:'Protection Coordination — TCC', font:{size:11,weight:'bold'} },
+    },
+    scales: {
+      x: { type:'logarithmic', title:{display:true,text:'Current (A)'}, ticks:{font:{size:9}} },
+      y: { type:'logarithmic', title:{display:true,text:'Time (s)'},    ticks:{font:{size:9}},
+           min:0.01, max:100 },
+    },
+  });
+
+  document.getElementById('prot-info').innerHTML =
+    `Motor rated current = ${r.I_line.toFixed(1)} A  |  ` +
+    `Motor starting current ≈ ${I_start.toFixed(0)} A (×6 rated)  |  ` +
+    `CTI (coordination time interval) should be ≥ 0.3 s between R1 and R2`;
+}
+
+// ─────────────────────────── SPEED CONTROLLER ────────────────────────
+let ctrlTimer = null;
+const ctrlState = {
+  running: false, t: 0, wr: 0, alpha: 90, dt: 0.05,
+  pid_int: 0, pid_prev_err: 0,
+  fuzzy_prev_err: 0,
+  th: { t:[], rpm:[], Te:[], alpha:[] }
+};
+
+function initCtrlSliders() {
+  makeSliders('ctrl-sliders', [
+    ['speed_ref','Speed Ref (RPM)', 200, 1800, 10, fmtNum(0)],
+    ['kp',       'PID Kp',         0.1, 10, 0.1, fmtNum(2)],
+    ['ki',       'PID Ki',         0,    5, 0.1, fmtNum(2)],
+    ['kd',       'PID Kd',         0,    2, 0.05,fmtNum(2)],
+    ['step_load','Step Load (N·m)', 0,  50, 1, fmtNum(1)],
+  ]);
+}
+
+function pidCompute(sp, meas) {
+  const err = sp - meas;
+  ctrlState.pid_int += err * ctrlState.dt;
+  if (state.ki > 1e-9) {
+    const max_int = (175 - 20) / state.ki;
+    ctrlState.pid_int = Math.max(-max_int, Math.min(max_int, ctrlState.pid_int));
+  }
+  const deriv = (err - ctrlState.pid_prev_err) / (ctrlState.dt + 1e-9);
+  ctrlState.pid_prev_err = err;
+  const u = state.kp * err + state.ki * ctrlState.pid_int + state.kd * deriv;
+  return Math.max(20, Math.min(175, u));
+}
+
+function trimf(x, a, b, c) {
+  if (x <= a || x >= c) return 0;
+  return x <= b ? (x-a)/(b-a+1e-9) : (c-x)/(c-b+1e-9);
+}
+
+function fuzzyCompute(sp, meas) {
+  const e_range = 1000, de_range = 200;
+  const err  = sp - meas;
+  const derr = (err - ctrlState.fuzzy_prev_err) / (ctrlState.dt + 1e-9);
+  ctrlState.fuzzy_prev_err = err;
+  const e_n  = Math.max(-1, Math.min(1, err  / e_range));
+  const de_n = Math.max(-1, Math.min(1, derr / de_range));
+
+  const CTRS = [-1, -0.5, 0, 0.5, 1];
+  const mfe  = CTRS.map(c => trimf(e_n,  c-0.5, c, c+0.5));
+  const mfde = CTRS.map(c => trimf(de_n, c-0.5, c, c+0.5));
+
+  const RULES = [
+    [0,0,1,2,3],[0,1,2,3,4],[1,2,2,2,3],[1,2,3,4,4],[2,2,3,4,4]
+  ];
+  const agg = [0,0,0,0,0];
+  mfe.forEach((me,i) => mfde.forEach((md,j) => {
+    const strength = Math.min(me, md);
+    const ro = RULES[i][j];
+    agg[ro] = Math.max(agg[ro], strength);
+  }));
+  const num = agg.reduce((s,v,k) => s + v * CTRS[k], 0);
+  const den = agg.reduce((s,v) => s + v, 0) + 1e-12;
+  return (num / den) * 80; // degrees adjustment
+}
+
+function ctrlStep() {
+  const ws  = wSync();
+  const meas = ctrlState.wr * 60 / TWO_PI;
+  const sp   = state.speed_ref;
+  const Tl   = ctrlState.t >= 3.0 ? state.step_load : state.T_load;
+
+  const mode = document.getElementById('ctrlMode').value;
+  if (mode === 'PID') {
+    ctrlState.alpha = pidCompute(sp, meas);
+  } else {
+    const da = fuzzyCompute(sp, meas);
+    ctrlState.alpha = Math.max(20, Math.min(175, ctrlState.alpha - da * ctrlState.dt));
+  }
+
+  const V  = vEffective(state.V_line, ctrlState.alpha);
+  const s  = Math.max(0.001, Math.min(1, (ws - ctrlState.wr) / Math.max(ws, 0.001)));
+  const Te = motorTorque(V, s);
+  const Tm = Tl + M.Bm * ctrlState.wr;
+  const dw = (Te - Tm) / M.J;
+
+  ctrlState.wr = Math.max(0, Math.min(ctrlState.wr + dw * ctrlState.dt, ws * 1.05));
+  ctrlState.t += ctrlState.dt;
+
+  const rpm = ctrlState.wr * 60 / TWO_PI;
+  ctrlState.th.t.push(+ctrlState.t.toFixed(2));
+  ctrlState.th.rpm.push(+rpm.toFixed(1));
+  ctrlState.th.Te.push(+Te.toFixed(3));
+  ctrlState.th.alpha.push(+ctrlState.alpha.toFixed(1));
+
+  const maxPts = Math.ceil(12 / ctrlState.dt);
+  ['t','rpm','Te','alpha'].forEach(k => {
+    if (ctrlState.th[k].length > maxPts) ctrlState.th[k].shift();
+  });
+}
+
+function ctrlUpdatePlots() {
+  const h = ctrlState.th;
+  const mode = document.getElementById('ctrlMode').value;
+  const sp = state.speed_ref;
+
+  getOrCreateChart('ctrlSpeedChart', 'line', {
+    labels: h.t,
+    datasets: [
+      { label:'Speed', data: h.rpm, borderColor:'#2563eb', borderWidth:1.5, pointRadius:0 },
+      { label:`Ref = ${sp.toFixed(0)} RPM`, data: Array(h.t.length).fill(sp),
+        borderColor:'#dc2626', borderWidth:1, borderDash:[5,3], pointRadius:0 },
+    ],
+  }, lineDefaults(`Speed [${mode}] — Step Load at t=3s`, 'Time (s)', 'RPM'));
+
+  getOrCreateChart('ctrlTorqChart', 'line', {
+    labels: h.t,
+    datasets: [{ label:'Torque', data: h.Te, borderColor:'#c2410c', borderWidth:1.5, pointRadius:0 }],
+  }, lineDefaults('Electromagnetic Torque', 'Time (s)', 'N·m'));
+
+  getOrCreateChart('ctrlAlphaChart', 'line', {
+    labels: h.t,
+    datasets: [{ label:'Firing angle α', data: h.alpha, borderColor:'#7c3aed', borderWidth:1.5, pointRadius:0 }],
+  }, lineDefaults('Controller Output (α)', 'Time (s)', 'Degrees'));
+
+  const rpm = h.rpm[h.rpm.length-1] || 0;
+  document.getElementById('ctrl-status').textContent =
+    `Running [${mode}] | t=${ctrlState.t.toFixed(1)}s | Speed=${rpm.toFixed(0)} RPM | ` +
+    `Ref=${sp.toFixed(0)} RPM | Error=${(sp-rpm).toFixed(0)} RPM | α=${ctrlState.alpha.toFixed(1)}°`;
+}
+
+function ctrlStart() {
+  if (ctrlState.running) return;
+  ctrlState.running = true;
+  function tick() {
+    if (!ctrlState.running) return;
+    for (let i = 0; i < 5; i++) ctrlStep();
+    ctrlUpdatePlots();
+    ctrlTimer = setTimeout(tick, 100);
+  }
+  tick();
+}
+function ctrlStop()  { ctrlState.running = false; clearTimeout(ctrlTimer);
+  document.getElementById('ctrl-status').textContent = 'Status: Stopped'; }
+function ctrlReset() {
+  ctrlStop();
+  Object.assign(ctrlState, {t:0, wr:0, alpha:90, pid_int:0, pid_prev_err:0, fuzzy_prev_err:0});
+  ctrlState.th = {t:[],rpm:[],Te:[],alpha:[]};
+  ['ctrlSpeedChart','ctrlTorqChart','ctrlAlphaChart'].forEach(id => {
+    if (charts[id]) { charts[id].destroy(); delete charts[id]; }
+  });
+  document.getElementById('ctrl-status').textContent = 'Status: Reset';
+}
+
+// ─────────────────────────── THERMAL / ECONOMIC ───────────────────────
+function initThermSliders() {
+  makeSliders('therm-sliders', [
+    ['R_th',   'R_th (°C/W)',     0.1, 5, 0.1, fmtNum(1)],
+    ['hours',  'Hours/Year',      1000, 8760, 100, fmtNum(0)],
+    ['e_cost', 'Energy ($/kWh)', 0.04, 0.30, 0.01, fmtNum(2)],
+    ['eta',    'Efficiency η',    0.5,  1.0, 0.01, fmtPct],
+  ]);
+  ['R_th','hours','e_cost','eta'].forEach(k => {
+    const el = document.getElementById('sl_therm-sliders_' + k);
+    if (el) el.addEventListener('input', plotThermal);
+  });
+}
+
+function plotThermal() {
+  const r      = calcMotorParams(state.hp, state.V_line, state.freq, state.pf, state.eta, state.poles);
+  const P_loss = r.P_in - r.P_out;
+  const T_amb  = 25;
+  const R_th   = state.R_th;
+  const C_th   = 500;
+  const tau    = R_th * C_th;
+  const T_ss   = T_amb + P_loss * R_th;
+
+  // Temperature rise over 2 hours
+  const N = 200;
+  const t_max = 7200;
+  const t_arr = [], T_arr = [];
+  for (let i = 0; i <= N; i++) {
+    const ti = i * t_max / N;
+    t_arr.push(+(ti/60).toFixed(1));
+    T_arr.push(+(T_ss - (T_ss - T_amb) * Math.exp(-ti / (tau+1e-9))).toFixed(1));
+  }
+
+  getOrCreateChart('tempChart', 'line', {
+    labels: t_arr,
+    datasets: [
+      { label:'Motor temperature', data: T_arr, borderColor:'#dc2626', borderWidth:2, pointRadius:0, fill:{target:'origin', above:'#fca5a522'} },
+      { label:`T_ss = ${T_ss.toFixed(1)}°C`, data: Array(t_arr.length).fill(+T_ss.toFixed(1)),
+        borderColor:'#94a3b8', borderWidth:1, borderDash:[5,3], pointRadius:0 },
+      { label:'Class B limit 130°C', data: Array(t_arr.length).fill(130),
+        borderColor:'#f97316', borderWidth:1.5, borderDash:[4,4], pointRadius:0 },
+      { label:'Class F limit 155°C', data: Array(t_arr.length).fill(155),
+        borderColor:'#dc2626', borderWidth:1.5, borderDash:[3,5], pointRadius:0 },
+    ],
+  }, lineDefaults('Motor Temperature Rise', 'Time (min)', 'Temperature (°C)'));
+
+  // Economic analysis
+  const loads = [];
+  const costs = [];
+  for (let i = 0; i <= 50; i++) {
+    const frac = 0.1 + i * 1.5 / 50;
+    const P_in_i = (frac * r.P_out) / Math.max(state.eta, 0.01);
+    loads.push((frac * 100).toFixed(0));
+    costs.push(+(P_in_i / 1000 * state.hours * state.e_cost).toFixed(0));
+  }
+  const full_cost = (r.P_in / 1000 * state.hours * state.e_cost).toFixed(0);
+
+  getOrCreateChart('econChart', 'line', {
+    labels: loads,
+    datasets: [
+      { label:'Annual energy cost', data: costs, borderColor:'#2563eb', borderWidth:2, pointRadius:0, fill:{target:'origin',above:'#bfdbfe22'} },
+    ],
+  }, {
+    ...lineDefaults(`Annual Energy Cost (Full-load = $${full_cost}/yr)`, 'Load Level (%)', 'Cost ($/yr)'),
+    plugins: {
+      ...lineDefaults().plugins,
+      annotation: {},
+    },
+  });
+
+  document.getElementById('therm-result').innerHTML =
+    `P_loss = ${P_loss.toFixed(0)} W  |  T_steady-state = ${T_ss.toFixed(1)}°C  |  ` +
+    `Thermal time constant τ = ${tau.toFixed(0)} s  |  ` +
+    `Annual energy (full-load) = ${(r.P_in/1000*state.hours).toFixed(0)} kWh  |  ` +
+    `Cost = $${full_cost}/year`;
+}
+
+// ─────────────────────────── HARMONICS ───────────────────────────────
+function initHarmSliders() {
+  makeSliders('harm-sliders', [
+    ['harm_alpha', 'Firing Angle α (°)',  0, 175, 1, fmtDeg],
+    ['harm_pf',    'Load PF',             0.5, 1, 0.01, fmtNum(3)],
+    ['V_line',     'V_line (V)',        100, 600, 5, fmtNum(0)],
+    ['freq',       'Freq (Hz)',          50, 60, 5, fmtNum(0)],
+  ]);
+  ['harm_alpha','harm_pf'].forEach(k => {
+    const el = document.getElementById('sl_harm-sliders_' + k);
+    if (el) el.addEventListener('input', runHarmonics);
+  });
+}
+
+function fftMag(signal) {
+  // Simple DFT (not FFT, but sufficient for ~10 harmonics with N=2000)
+  const N = signal.length;
+  const result = [];
+  const maxH = 21;
+  for (let h = 1; h <= maxH; h++) {
+    let re = 0, im = 0;
+    for (let n = 0; n < N; n++) {
+      const angle = TWO_PI * h * n / N;
+      re += signal[n] * Math.cos(angle);
+      im -= signal[n] * Math.sin(angle);
+    }
+    result.push(2 * Math.sqrt(re*re + im*im) / N);
+  }
+  return result;
+}
+
+function runHarmonics() {
+  const alpha   = state.harm_alpha;
+  const pf_load = state.harm_pf;
+  const V       = state.V_line;
+  const f       = state.freq;
+
+  // Generate longer waveform for better frequency resolution
+  const { t, v_out, i_out } = genWaveform(V, f, alpha, pf_load, 10);
+
+  // DFT magnitudes (harmonics 1..20)
+  const step = Math.ceil(t.length / 2000);
+  const v_ds = v_out.filter((_,i) => i%step===0);
+  const i_ds = i_out.filter((_,i) => i%step===0);
+
+  const hv = fftMag(v_ds);
+  const hi = fftMag(i_ds);
+
+  const V1 = hv[0] || 1e-9;
+  const I1 = hi[0] || 1e-9;
+  const thd_v = 100 * Math.sqrt(hv.slice(1).reduce((s,v) => s+v*v, 0)) / (V1+1e-9);
+  const thd_i = 100 * Math.sqrt(hi.slice(1).reduce((s,v) => s+v*v, 0)) / (I1+1e-9);
+
+  const orders = Array.from({length:20}, (_,i) => i+1);
+  const colV = orders.map(h => h===1 ? '#dc2626' : '#fca5a5');
+  const colI = orders.map(h => h===1 ? '#2563eb' : '#93c5fd');
+
+  getOrCreateChart('harmVChart', 'bar', {
+    labels: orders.map(h => `H${h}`),
+    datasets: [{ label:'Voltage harmonic', data: hv.map(v => +v.toFixed(2)),
+      backgroundColor: colV, borderColor:'#1e293b', borderWidth:0.5 }],
+  }, {
+    ...lineDefaults(`Voltage Harmonic Spectrum  (THD = ${thd_v.toFixed(1)} %)`, 'Harmonic Order', 'Amplitude (V)'),
+    scales: {
+      x: { ticks:{ font:{size:9} } },
+      y: { title:{display:true,text:'Amplitude (V)'}, ticks:{font:{size:9}} },
+    },
+  });
+
+  getOrCreateChart('harmIChart', 'bar', {
+    labels: orders.map(h => `H${h}`),
+    datasets: [{ label:'Current harmonic', data: hi.map(v => +v.toFixed(3)),
+      backgroundColor: colI, borderColor:'#1e293b', borderWidth:0.5 }],
+  }, {
+    ...lineDefaults(`Current Harmonic Spectrum  (THD = ${thd_i.toFixed(1)} %)`, 'Harmonic Order', 'Amplitude (pu)'),
+    scales: {
+      x: { ticks:{ font:{size:9} } },
+      y: { title:{display:true,text:'Amplitude (pu)'}, ticks:{font:{size:9}} },
+    },
+  });
+
+  document.getElementById('harm-result').innerHTML =
+    `Voltage THD = ${thd_v.toFixed(2)} %  |  Current THD = ${thd_i.toFixed(2)} %  |  ` +
+    `α = ${alpha.toFixed(1)}°  |  PF_load = ${pf_load.toFixed(3)}  |  ` +
+    `Dominant odd harmonics (3rd, 5th, 7th) characteristic of phase-angle control  |  ` +
+    `IEEE 519: THD_V ≤ 5 % at PCC; THD_I ≤ 8 % (for loads < 20 % short-circuit ratio)`;
+}
+
+// ─────────────────────────── INITIALIZATION ──────────────────────────
+window.addEventListener('DOMContentLoaded', () => {
+  // Calculator sliders
+  makeSliders('calc-sliders', [
+    ['hp',     'Rated Power (hp)',    1, 20, 0.5, fmtNum(1)],
+    ['V_line', 'Line Voltage (V)', 100, 600, 5, fmtNum(0)],
+    ['freq',   'Frequency (Hz)',   50, 60, 5, fmtNum(0)],
+    ['pf',     'Power Factor',   0.50, 1.0, 0.01, fmtNum(3)],
+    ['eta',    'Efficiency η',    0.5, 1.0, 0.01, fmtPct],
+    ['poles',  'Poles',             2,  8,  2, fmtNum(0)],
+  ]);
+
+  initWaveSliders();
+  initSimSliders();
+  initFaultSliders();
+  initProtSliders();
+  initCtrlSliders();
+  initThermSliders();
+  initHarmSliders();
+
+  // Draw circuit and run initial calculations
+  drawCircuit();
+  runCalc();
+  plotWaveform();
+  plotProtection();
+  plotThermal();
+  runHarmonics();
+});
+
+window.addEventListener('resize', drawCircuit);
+</script>
+</body>
+</html>
