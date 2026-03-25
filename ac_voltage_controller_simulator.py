@@ -299,10 +299,16 @@ class MotorModel:
 # ===========================================================================
 
 class PIDController:
-    """Discrete-time PID with anti-windup clamping."""
+    """
+    Discrete-time PID with anti-windup clamping.
+
+    Output units: same as (error × gain), typically RPM × gain.
+    The caller is responsible for mapping the output to the plant input (e.g.
+    firing angle α) via an appropriate scale factor and sign convention.
+    """
 
     def __init__(self, kp=2.0, ki=0.5, kd=0.1, dt=0.002,
-                 out_min=20.0, out_max=175.0):
+                 out_min=-1000.0, out_max=1000.0):
         self.kp = kp; self.ki = ki; self.kd = kd
         self.dt = dt
         self.out_min = out_min; self.out_max = out_max
@@ -338,14 +344,16 @@ class FuzzyController:
     LABELS  = ['NB', 'NS', 'ZE', 'PS', 'PB']
     CENTERS = [-1.0, -0.5, 0.0, 0.5, 1.0]
 
-    #  Rule table [e-row][Δe-col] → output label index
+    #  Rule table [e-row][Δe-col] → output label index (output = Δα rate)
+    #  e = sp - meas:  NB ↔ speed >> ref (error very negative) → increase α
+    #                  PB ↔ speed << ref (error very positive)  → decrease α
     #         NB  NS  ZE  PS  PB
     RULES = [
-        [0,  0,  1,  2,  3],   # e = NB (speed much below ref → reduce α)
+        [0,  0,  1,  2,  3],   # e = NB: speed >> ref → large +α correction
         [0,  1,  2,  3,  4],   # e = NS
         [1,  2,  2,  2,  3],   # e = ZE
         [1,  2,  3,  4,  4],   # e = PS
-        [2,  2,  3,  4,  4],   # e = PB (speed much above ref → increase α)
+        [2,  2,  3,  4,  4],   # e = PB: speed << ref → large −α correction
     ]
 
     def __init__(self, e_range=1000.0, de_range=200.0, out_range=80.0):
@@ -1129,6 +1137,10 @@ class App(tk.Tk):
         alpha = 90.0           # start mid-range
         dt    = 0.004
 
+        # Scale factor: maps PID output (RPM units) to firing-angle rate (°/s).
+        # Lower α → higher V_rms → higher speed, so positive error reduces α.
+        ALPHA_SCALE = 0.01  # °·s / RPM
+
         while self._ctrl_running:
             sp    = self.v["speed_ref"].get()
             meas  = self._ctrl_motor.hist["rpm"][-1] if self._ctrl_motor.hist["rpm"] else 0.0
@@ -1142,10 +1154,11 @@ class App(tk.Tk):
                 self._pid.kp = self.v["kp"].get()
                 self._pid.ki = self.v["ki"].get()
                 self._pid.kd = self.v["kd"].get()
-                # PID output is firing angle (inversely proportional to speed demand)
-                u = self._pid(sp, meas)
-                # Map: higher speed error → lower alpha
-                alpha = float(np.clip(u, 20.0, 175.0))
+                # PID output u > 0 when speed < setpoint.
+                # Correct action: decrease α (increase voltage → increase speed).
+                u  = self._pid(sp, meas)
+                da = u * ALPHA_SCALE          # α rate [°/s]
+                alpha = float(np.clip(alpha - da * dt, 20.0, 175.0))
             else:
                 da    = self._fuzzy(sp, meas, dt=dt)
                 alpha = float(np.clip(alpha - da * dt, 20.0, 175.0))
@@ -1399,7 +1412,9 @@ class App(tk.Tk):
                          "_canvas_fault", "_canvas_prot", "_canvas_ctrl",
                          "_canvas_therm", "_canvas_harm"]:
                 try:
-                    getattr(self, attr).draw()
+                    canvas = getattr(self, attr)
+                    canvas.figure.tight_layout()
+                    canvas.draw()
                 except Exception:
                     pass
 
