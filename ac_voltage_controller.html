@@ -1018,13 +1018,13 @@ function pidCompute(sp, meas) {
   const err = sp - meas;
   ctrlState.pid_int += err * ctrlState.dt;
   if (state.ki > 1e-9) {
-    const max_int = (175 - 20) / state.ki;
+    const max_int = 1000 / state.ki;
     ctrlState.pid_int = Math.max(-max_int, Math.min(max_int, ctrlState.pid_int));
   }
   const deriv = (err - ctrlState.pid_prev_err) / (ctrlState.dt + 1e-9);
   ctrlState.pid_prev_err = err;
-  const u = state.kp * err + state.ki * ctrlState.pid_int + state.kd * deriv;
-  return Math.max(20, Math.min(175, u));
+  // Return raw PID output (units: RPM × gain).  Caller applies scale + sign.
+  return state.kp * err + state.ki * ctrlState.pid_int + state.kd * deriv;
 }
 
 function trimf(x, a, b, c) {
@@ -1064,9 +1064,15 @@ function ctrlStep() {
   const sp   = state.speed_ref;
   const Tl   = ctrlState.t >= 3.0 ? state.step_load : state.T_load;
 
+  // Scale factor: maps PID output (RPM units) to firing-angle rate (°/s).
+  // Positive error (speed < ref) → reduce α (increase voltage → increase speed).
+  const ALPHA_SCALE = 0.01; // °·s / RPM
+
   const mode = document.getElementById('ctrlMode').value;
   if (mode === 'PID') {
-    ctrlState.alpha = pidCompute(sp, meas);
+    const u  = pidCompute(sp, meas);
+    const da = u * ALPHA_SCALE;
+    ctrlState.alpha = Math.max(20, Math.min(175, ctrlState.alpha - da * ctrlState.dt));
   } else {
     const da = fuzzyCompute(sp, meas);
     ctrlState.alpha = Math.max(20, Math.min(175, ctrlState.alpha - da * ctrlState.dt));
