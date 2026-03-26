@@ -403,7 +403,9 @@ function drawPFPhasor(r) {
   const nM = r.Sm / I;
   const nT = r.St / I;
   const fx = nF * Math.cos(-r.thF), fy = nF * Math.sin(-r.thF);
-  const mx = nM * Math.cos(r.thR), my = nM * Math.sin(r.thR);   // motor leads
+  // Motor angle uses the motor's own leading power factor (positive = above real axis)
+  const thM = Math.acos(r.pfM);
+  const mx = nM * Math.cos(thM), my = nM * Math.sin(thM);
   const tx = nT * Math.cos(-r.thR), ty = nT * Math.sin(-r.thR);
 
   charts['pfPhasor'] = new Chart(document.getElementById('pfPhasor'), {
@@ -855,7 +857,7 @@ function thermalCalculate() {
   for(let i=0;i<N;i++){
     tHrs.push(parseFloat((i*dt/3600).toFixed(4)));
     T.push(parseFloat(temp.toFixed(2)));
-    const dT = (Ploss*1000*Rth/1000 - (temp-Tamb)) * dt / tau;
+    const dT = (Ploss * Rth - (temp - Tamb)) * dt / tau;
     temp += dT;
   }
   const Tss = Tamb + Ploss * Rth;

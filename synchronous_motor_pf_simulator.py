@@ -41,11 +41,12 @@ import math
 class PowerFactorModel:
     """Solve the parallel-load power-factor correction problem."""
 
-    def __init__(self, p_factory=250.0, pf_factory=0.8, p_motor=50.0, pf_required=0.9):
+    def __init__(self, p_factory=250.0, pf_factory=0.8, p_motor=50.0, pf_required=0.9, voltage_kv=0.4):
         self.p_factory = p_factory
         self.pf_factory = pf_factory
         self.p_motor = p_motor
         self.pf_required = pf_required
+        self.voltage_kv = voltage_kv
 
     def solve(self):
         pf = self.pf_factory
@@ -66,9 +67,10 @@ class PowerFactorModel:
         S_motor = math.sqrt(self.p_motor**2 + Q_motor**2)
         pf_motor = self.p_motor / S_motor if S_motor > 0 else 1.0
 
-        I_factory = S_factory / (math.sqrt(3) * 0.4)   # assume 400 V
-        I_motor = S_motor / (math.sqrt(3) * 0.4)
-        I_total = S_total / (math.sqrt(3) * 0.4)
+        V_line = max(self.voltage_kv, 0.001)          # kV line-to-line
+        I_factory = S_factory / (math.sqrt(3) * V_line)   # A (S in kVA, V in kV)
+        I_motor = S_motor / (math.sqrt(3) * V_line)
+        I_total = S_total / (math.sqrt(3) * V_line)
 
         return {
             "P_factory": self.p_factory,
@@ -198,20 +200,20 @@ class SpeedControllerModel:
 
 
 class ThermalModel:
-    """First-order motor thermal model: τ dΔT/dt = P_loss - ΔT"""
+    """First-order motor thermal model: τ dΔT/dt = P_loss·R_th - ΔT"""
 
-    def __init__(self, tau=600, R_th=0.4):
+    def __init__(self, tau=600, R_th=1.0):
         self.tau = tau      # thermal time constant (s)
-        self.R_th = R_th    # thermal resistance (°C/W)
+        self.R_th = R_th    # thermal resistance (°C/kW)
 
     def simulate(self, P_losses_kW, t_end=3600, dt=10, T_amb=25.0):
         t = np.arange(0, t_end, dt)
         T = np.zeros(len(t))
         T[0] = T_amb
-        P = P_losses_kW * 1000  # W
 
         for i in range(1, len(t)):
-            dT = (P * self.R_th - (T[i - 1] - T_amb)) * dt / self.tau
+            # P_losses_kW × R_th [°C/kW] = steady-state temperature rise (°C)
+            dT = (P_losses_kW * self.R_th - (T[i - 1] - T_amb)) * dt / self.tau
             T[i] = T[i - 1] + dT
 
         return t / 3600, T   # hours, °C
@@ -375,6 +377,7 @@ class PFAnalysisTab:
             pf_factory=self.v_pf_factory.get(),
             p_motor=self.v_p_motor.get(),
             pf_required=self.v_pf_required.get(),
+            voltage_kv=self.v_voltage.get(),
         )
         r = m.solve()
         self._update_results(r)
@@ -417,9 +420,9 @@ class PFAnalysisTab:
         I_f = r["S_factory"] / r["P_total"]     # normalised
         Ifx, Ify = I_f * math.cos(th_f), I_f * math.sin(th_f)
 
-        # Motor current phasor (leading)
+        # Motor current phasor (leading: drawn above the real axis, angle positive = leading)
         pf_m = r["pf_motor"]
-        th_m = math.acos(pf_m)                  # positive angle → leading
+        th_m = math.acos(pf_m)   # magnitude of lead angle; sin(th_m) > 0 places phasor above axis
         I_m = r["S_motor"] / r["P_total"]
         Imx, Imy = I_m * math.cos(th_m), I_m * math.sin(th_m)
 
@@ -902,7 +905,7 @@ class ThermalEconomicTab:
         t_hrs, T = tm.simulate(P_losses_kW=self.v_P_loss.get(), t_end=t_run_s,
                                T_amb=self.v_Tamb.get())
         T_max = float(np.max(T))
-        T_ss = self.v_Tamb.get() + self.v_P_loss.get() * 1000 * Rth
+        T_ss = self.v_Tamb.get() + self.v_P_loss.get() * Rth
 
         # Economic
         P = self.v_P_load.get(); pf_o = self.v_pf_old.get(); pf_n = self.v_pf_new.get()
